@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Дерево
+{% endblock %}
+
+{% block body%}
+{% set ns = namespace(prev=tree[0][0]) %}
+<div class="container">
+    <div class="tree-button-block"><button class="tree-button" id="toggle-tree">Изменить вид</button></div>
+    <div class="tree" id="tree">
+        <ul>
+            {% for el in tree %}
+            {% if ns.prev == el[0]: %}
+            </li>
+            <li><a class="{{el[3][0].replace('<', '').replace('>', '')}}" href="/info-tree/{{el[2]}}/change">{{ el[1]
+                    }}</a>
+
+                {% endif %}
+
+                {% if ns.prev < el[0]: %} <ul>
+            <li><a class="{{el[3][0].replace('<', '').replace('>', '')}}" href="/info-tree/{{el[2]}}/change">{{ el[1]
+                    }}</a>
+
+                {% endif %}
+
+                {% if ns.prev > el[0]: %}
+
+                {% for _ in range(ns.prev - el[0]) %}
+            </li>
+        </ul>
+        {% endfor %}
+
+        <li><a class="{{el[3][0].replace('<', '').replace('>', '')}}" href="/info-tree/{{el[2]}}/change">{{ el[1] }}</a>
+
+
+            {% endif %}
+            {% set ns.prev=el[0] %}
+            {% endfor %}
+            </ul>
+    </div>
+
+    <div class="add">
+        <a class="add-button" href="/info-tree/add">Добавить элемент</a>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Добавить
+{% endblock %}
+
+{% block body %}
+{% set ns = namespace(prev=tree[0][0]) %}
+<div class="container">
+    <div class="change-form">
+        <form class="row change" method="post">
+            <textarea name="text" type="text" id="question" class="inp" placeholder="Введите текст элемента"></textarea>
+            <select name="button-type">
+                <option>--Выберите вид элемента--</option>
+                {% for property in properties %}
+                    <option value="{{property[0]}}">{{property[1]}}</option>
+                {% endfor %}
+            </select>
+            <select name="pid">
+                <option>--Выберите элемент-родитель--</option>
+                {% for el in tree %}
+                <option value={{el[2]}}>
+                    {% for _ in range(el[0]-1) %}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{% endfor %} ↳
+                    {{el[1]}}</option>
+                {% endfor %}
+            </select>
+            <input type="submit" value="Добавить">
+        </form>
+        </div>
+<h1 class="now">Сейчас</h1>
+<div class="tree-button-block"><button class="tree-button" id="toggle-tree">Изменить вид</button></div>
+<div class="tree" id="tree">
+    <ul>
+        {% for el in tree %}
+            {% if ns.prev == el[0]: %}
+            </li><li><a class="{{el[3][0].replace('<', '').replace('>', '')}}" href="/info-tree/{{el[2]}}/change">{{ el[1] }}</a>
+
+            {% endif %}
+
+            {% if ns.prev < el[0]: %}
+            
+            <ul><li><a class="{{el[3][0].replace('<', '').replace('>', '')}}" href="/info-tree/{{el[2]}}/change">{{ el[1] }}</a>
+            {% endif %}
+            
+            {% if ns.prev > el[0]: %}
+            
+                {% for _ in range(ns.prev - el[0]) %}
+                </li></ul>
+                {% endfor %}
+                
+                <li><a class="{{el[3][0].replace('<', '').replace('>', '')}}" href="/info-tree/{{el[2]}}/change">{{ el[1] }}</a>
+                
+            {% endif %}
+            {% set ns.prev=el[0] %}
+        {% endfor %}
+    </ul>
+</div>
+
+</div>
+{% endblock %}

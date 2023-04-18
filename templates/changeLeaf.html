@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Изменить
+{% endblock %}
+
+{% block body%}
+<div class="container">
+    <form class="row change" method="post">
+        <textarea name="text" type="text" id="question" class="inp" placeholder="Введите текст">{{ data[0] }}</textarea>
+        <!-- <textarea name="properties" type="text" id="properties" class="inp" placeholder="Введите текст">{{ data[1] }}</textarea> -->
+            {% if current_property[0] != '<button>' %}
+            <select name="button-type">
+            <option value="-">-- {{current_property[1]}} --</option>
+            {% for property in properties %}
+            <option value="{{property[0]}}">{{property[1]}}</option>
+            {% endfor %}
+            </select>
+            {% endif %}
+         
+        <input type="submit" value="Изменить">
+    </form>
+    <div class="delete-leaf"><a class="delete" href="/info-tree/delete/{{id}}" onclick="return confirm('Вы уверены, что хотиле удалить элемент? Все дочерние элементы тоже удалятся!')">Удалить</a></div>
+</div>
+
+{% endblock %}
