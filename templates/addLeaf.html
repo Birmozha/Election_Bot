@@ -9,7 +9,7 @@
 <div class="container">
     <div class="change-form">
         <form class="row change" method="post">
-            <textarea name="text" type="text" id="question" class="inp" placeholder="Введите текст элемента"></textarea>
+            <textarea name="text" type="text" id="input" class="inp" placeholder="Введите текст элемента"></textarea>
             <select name="button-type">
                 <option>--Выберите вид элемента--</option>
                 {% for property in properties %}
@@ -24,9 +24,19 @@
                     {{el[1]}}</option>
                 {% endfor %}
             </select>
+            <input type="file" name="image">
             <input type="submit" value="Добавить">
         </form>
         </div>
+        <div>
+        <button id="button">Добавить разделитель</button></div>
+    <script>
+        button.onclick = () => {
+          input.setRangeText("//delimeter//", input.selectionStart, input.selectionEnd, "end");
+          input.focus();
+        };
+      </script>
+
 <h1 class="now">Сейчас</h1>
 <div class="tree-button-block"><button class="tree-button" id="toggle-tree">Изменить вид</button></div>
 <div class="tree" id="tree">

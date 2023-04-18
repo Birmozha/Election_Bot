@@ -24,12 +24,18 @@
                     {{el[1]}}</option>
                 {% endfor %}
             </select>
-        
-        
-        
+            <input type="file" name="image">
             <input type="submit" value="Добавить">
         </form>
         </div>
+        <div>
+        <button id="button">Добавить разделитель</button></div>
+    <script>
+        button.onclick = () => {
+          input.setRangeText("//delimeter//", input.selectionStart, input.selectionEnd, "end");
+          input.focus();
+        };
+      </script>
 
 <h1 class="now">Сейчас</h1>
 <div class="tree-button-block"><button class="tree-button" id="toggle-tree">Изменить вид</button></div>

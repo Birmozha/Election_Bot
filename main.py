@@ -11,7 +11,7 @@ if os.path.exists(dotenv_path):
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
-
+app.config['UPLOAD_FOLDER'] = os.environ.get('UPLOAD_FOLDER')
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -129,11 +129,17 @@ def changeLeaf(id):
     if request.method == "POST":
         text = request.form['text']
         property = None
+        image = None
         try:
             if request.form['button-type'] and request.form['button-type'] != '-':
                 property = request.form['button-type']
+            if request.files['image']:
+                image = request.files['image']
         except KeyError:
             pass
+        if image:
+            filename = image.filename
+            image.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
         with sqlite3.connect('database/data.db') as db:
             cur = db.cursor()
             db.execute("""BEGIN TRANSACTION""")
@@ -148,6 +154,20 @@ def changeLeaf(id):
                                 = ((?))
                                 WHERE qid IS (?) ;
                                 """, (property, id))
+            if image:
+                path = cur.execute("""SELECT image FROM images WHERE id is (?) """, (id, )).fetchone()
+                if not path:
+                    cur.execute("""INSERT INTO images (image, id)
+                                VALUES ((?), (?))
+                                """, (os.path.join(app.config['UPLOAD_FOLDER'], filename), id))
+                else:
+                    path = path[0]
+                    cur.execute("""UPDATE images
+                                    SET  (image)
+                                    = ((?))
+                                    WHERE id IS (?) ;
+                                    """, (os.path.join(app.config['UPLOAD_FOLDER'], filename), id))
+                    os.remove(path)
             db.execute("""END TRANSACTION""")
         return redirect('/info-tree')
     
@@ -155,6 +175,16 @@ def changeLeaf(id):
 
 
 
+
+@app.route('/info-tree/delete-photo/<int:id>')
+@login_required
+def deleteImageLeaf(id):
+    with sqlite3.connect('database/data.db') as db:
+        cur = db.cursor()
+        db.execute("""BEGIN TRANSACTION""")
+        cur.execute("""DELETE FROM images WHERE id is (?) """, (id, ))
+        db.execute("""END TRANSACTION""")
+    return redirect('/info-tree')
 
 @app.route('/info-tree/delete/<int:id>')
 @login_required
@@ -166,6 +196,17 @@ def deleteLeaf(id):
         cur.execute("""DELETE FROM tree WHERE qid is (?) """, (id, ))
         db.execute("""END TRANSACTION""")
     return redirect('/info-tree')
+
+@app.route('/complain-tree/delete-photo/<int:id>')
+@login_required
+def deleteImageComplainLeaf(id):
+    with sqlite3.connect('database/data.db') as db:
+        cur = db.cursor()
+        db.execute("""BEGIN TRANSACTION""")
+        cur.execute("""DELETE FROM images WHERE id is (?) """, (id, ))
+        db.execute("""END TRANSACTION""")
+    return redirect('/info-tree')
+
 
 @app.route('/complain-tree/delete/<int:id>')
 @login_required
@@ -212,6 +253,15 @@ def addLeaf():
         text = request.form['text']
         property = request.form['button-type']
         pid = request.form['pid']
+        image = None
+        try:
+            if request.files['image']:
+                image = request.files['image']
+        except KeyError:
+            pass
+        if image:
+            filename = image.filename
+            image.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
         if not text:
             return redirect('/info-tree/add')
         elif property == '--Выберите вид элемента--':
@@ -227,77 +277,13 @@ def addLeaf():
             cur.execute("""INSERT INTO data (text)
                         VALUES ((?))
                         """, (text, ))
+            if image:
+                cur.execute("""INSERT INTO images (image, id)
+                        VALUES ((?))
+                        """, (image, pid))
             
         return redirect('/info-tree/add')
     return render_template('addLeaf.html', tree=tree, properties=properties)
-
-
-@app.route('/complain-tree/<int:id>/change', methods=['POST', 'GET'])
-@login_required
-def changeComplainTree(id):
-    with sqlite3.connect('database/data.db') as db:
-        cur = db.cursor()
-        props = cur.execute("""SELECT prop FROM properties WHERE category is (?) """, (17, )).fetchone()[0].split(' | ')
-        properties = []
-        for el in props:
-            temp = (el, cur.execute("""SELECT text FROM properties_text WHERE prop is (?) """, (el, )).fetchone()[0])
-            properties.append(temp)
-        current_property = (cur.execute("""SELECT properties FROM tree WHERE qid IS (?) """, (id, )).fetchone()[0])
-        current_property = (current_property, (cur.execute("""SELECT text FROM properties_text WHERE prop IS (?) """, (current_property, )).fetchone()[0]))
-        data = cur.execute("""SELECT text FROM data WHERE id IS (?)""", (id, )).fetchone()
-        
-    if request.method == "POST":
-        text = request.form['text']
-        property = None
-        try:
-            if request.form['button-type'] and request.form['button-type'] != '-':
-                property = request.form['button-type']
-        except KeyError:
-            pass
-        with sqlite3.connect('database/data.db') as db:
-            cur = db.cursor()
-            db.execute("""BEGIN TRANSACTION""")
-            cur.execute("""UPDATE data
-                            SET  (text)
-                            = ((?))
-                            WHERE id IS (?) ;
-                            """, (text, id))
-            if property:
-                cur.execute("""UPDATE tree
-                                SET  (properties)
-                                = ((?))
-                                WHERE qid IS (?) ;
-                                """, (property, id))
-            db.execute("""END TRANSACTION""")
-        return redirect('/complain-tree')
-    
-    return render_template('changeComplainLeaf.html', data=data, properties=properties, current_property=current_property, id=id)
-
-
-@app.route('/complain-tree')
-@login_required
-def complain_tree():
-    tree = []
-    with sqlite3.connect('database/data.db') as db:
-        cur = db.cursor()
-        null = cur.execute("""SELECT qid FROM tree WHERE pid IS null""").fetchone()[0]
-        cats = cur.execute("""SELECT qid FROM tree WHERE pid is (?)""", (null, )).fetchall()
-        level_id = cur.execute("""WITH RECURSIVE
-                        cte(qid, level) AS (
-                            VALUES((?), 0)
-                            UNION ALL
-                            SELECT tree.qid, cte.level+1
-                            FROM tree JOIN cte ON tree.pid = cte.qid
-                            ORDER BY 2 DESC)
-                            SELECT level, qid FROM cte""", (cats[1][0], )).fetchall()
-        
-        level_id = [el for el in level_id]
-        tree = []
-        for el in level_id:
-            temp = cur.execute("""SELECT data.text, tree.properties FROM data, tree WHERE data.id is (?) AND tree.qid IS (?)""", (el[1], el[1])).fetchone()
-            temp = (temp[0], tuple(temp[1].split(', ')))
-            tree.append((el[0]+1, temp[0], el[1], temp[1])) # (УРОВЕНЬ, ТЕКСТ, НОМЕР, СВОЙСТВА)
-    return render_template('complainTree.html', tree=tree)
 
 @app.route('/complain-tree/add', methods=['POST', 'GET'])
 @login_required
@@ -334,6 +320,15 @@ def addComplainLeaf():
         text = request.form['text']
         property = request.form['block-type']
         pid = request.form['pid']
+        image = None
+        try:
+            if request.files['image']:
+                image = request.files['image']
+        except KeyError:
+            pass
+        if image:
+            filename = image.filename
+            image.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
         if not text:
             return redirect('/complain-tree/add')
         elif property == '--Выберите вид элемента--':
@@ -349,9 +344,95 @@ def addComplainLeaf():
             cur.execute("""INSERT INTO data (text)
                         VALUES ((?))
                         """, (text, ))
+            if image:
+                cur.execute("""INSERT INTO images (image, id)
+                        VALUES ((?))
+                        """, (image, pid))
             
         return redirect('/complain-tree/add')
     return render_template('addComplainLeaf.html', tree=tree, properties=properties)
+
+@app.route('/complain-tree/<int:id>/change', methods=['POST', 'GET'])
+@login_required
+def changeComplainTree(id):
+    with sqlite3.connect('database/data.db') as db:
+        cur = db.cursor()
+        props = cur.execute("""SELECT prop FROM properties WHERE category is (?) """, (17, )).fetchone()[0].split(' | ')
+        properties = []
+        for el in props:
+            temp = (el, cur.execute("""SELECT text FROM properties_text WHERE prop is (?) """, (el, )).fetchone()[0])
+            properties.append(temp)
+        current_property = (cur.execute("""SELECT properties FROM tree WHERE qid IS (?) """, (id, )).fetchone()[0])
+        current_property = (current_property, (cur.execute("""SELECT text FROM properties_text WHERE prop IS (?) """, (current_property, )).fetchone()[0]))
+        data = cur.execute("""SELECT text FROM data WHERE id IS (?)""", (id, )).fetchone()
+        
+    if request.method == "POST":
+        text = request.form['text']
+        property = None
+        image = None
+        try:
+            if request.form['button-type'] and request.form['button-type'] != '-':
+                property = request.form['button-type']
+            if request.files['image']:
+                image = request.files['image']
+        except KeyError:
+            pass
+        if image:
+            filename = image.filename
+            image.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        with sqlite3.connect('database/data.db') as db:
+            cur = db.cursor()
+            db.execute("""BEGIN TRANSACTION""")
+            cur.execute("""UPDATE data
+                            SET  (text)
+                            = ((?))
+                            WHERE id IS (?) ;
+                            """, (text, id))
+            if property:
+                cur.execute("""UPDATE tree
+                                SET  (properties)
+                                = ((?))
+                                WHERE qid IS (?) ;
+                                """, (property, id))
+            if image:
+                path = cur.execute("""SELECT image FROM images WHERE id is (?) """, (id, )).fetchone()[0]
+                cur.execute("""UPDATE images
+                                SET  (image)
+                                = ((?))
+                                WHERE id IS (?) ;
+                                """, (os.path.join(app.config['UPLOAD_FOLDER'], filename), id))
+                os.remove(path)
+            db.execute("""END TRANSACTION""")
+        return redirect('/complain-tree')
+    
+    return render_template('changeComplainLeaf.html', data=data, properties=properties, current_property=current_property, id=id)
+
+
+@app.route('/complain-tree')
+@login_required
+def complain_tree():
+    tree = []
+    with sqlite3.connect('database/data.db') as db:
+        cur = db.cursor()
+        null = cur.execute("""SELECT qid FROM tree WHERE pid IS null""").fetchone()[0]
+        cats = cur.execute("""SELECT qid FROM tree WHERE pid is (?)""", (null, )).fetchall()
+        level_id = cur.execute("""WITH RECURSIVE
+                        cte(qid, level) AS (
+                            VALUES((?), 0)
+                            UNION ALL
+                            SELECT tree.qid, cte.level+1
+                            FROM tree JOIN cte ON tree.pid = cte.qid
+                            ORDER BY 2 DESC)
+                            SELECT level, qid FROM cte""", (cats[1][0], )).fetchall()
+        
+        level_id = [el for el in level_id]
+        tree = []
+        for el in level_id:
+            temp = cur.execute("""SELECT data.text, tree.properties FROM data, tree WHERE data.id is (?) AND tree.qid IS (?)""", (el[1], el[1])).fetchone()
+            temp = (temp[0], tuple(temp[1].split(', ')))
+            tree.append((el[0]+1, temp[0], el[1], temp[1])) # (УРОВЕНЬ, ТЕКСТ, НОМЕР, СВОЙСТВА)
+    return render_template('complainTree.html', tree=tree)
+
 
 
 if __name__ == '__main__':

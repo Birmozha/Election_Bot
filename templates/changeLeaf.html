@@ -6,21 +6,36 @@
 
 {% block body%}
 <div class="container">
-    <form class="row change" method="post">
-        <textarea name="text" type="text" id="question" class="inp" placeholder="Введите текст">{{ data[0] }}</textarea>
+    <form class="row change" method="post" enctype="multipart/form-data">
+        <textarea name="text" type="text" id="input" class="inp" placeholder="Введите текст">{{ data[0] }}</textarea>
         <!-- <textarea name="properties" type="text" id="properties" class="inp" placeholder="Введите текст">{{ data[1] }}</textarea> -->
-            {% if current_property[0] != '<button>' %}
+        {% if current_property[0] != '<button>' %}
             <select name="button-type">
-            <option value="-">-- {{current_property[1]}} --</option>
-            {% for property in properties %}
-            <option value="{{property[0]}}">{{property[1]}}</option>
-            {% endfor %}
+                <option value="-">-- {{current_property[1]}} --</option>
+                {% for property in properties %}
+                <option value="{{property[0]}}">{{property[1]}}</option>
+                {% endfor %}
             </select>
+            <input type="file" name="image">
             {% endif %}
-         
-        <input type="submit" value="Изменить">
+
+            <input type="submit" value="Изменить">
     </form>
-    <div class="delete-leaf"><a class="delete" href="/info-tree/delete/{{id}}" onclick="return confirm('Вы уверены, что хотиле удалить элемент? Все дочерние элементы тоже удалятся!')">Удалить</a></div>
+    <button id="button">Добавить разделитель</button>
+    <script>
+        button.onclick = () => {
+          input.setRangeText("//delimeter//", input.selectionStart, input.selectionEnd, "end");
+          input.focus();
+        };
+      </script>
+    <div class="delete-leaf">
+        {% if current_property[0] != '<button>' %}
+        <a class="delete" href="/info-tree/delete-photo/{{id}}"
+            onclick="return confirm('Вы уверены, что хотиле удалить фото?')">Удалить фото</a>
+            {% endif %}
+        <a class="delete" href="/info-tree/delete/{{id}}"
+            onclick="return confirm('Вы уверены, что хотиле удалить элемент? Все дочерние элементы тоже удалятся!')">Удалить элемент</a>
+    </div>
 </div>
 
 {% endblock %}
