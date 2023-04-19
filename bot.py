@@ -40,6 +40,7 @@ dp = Dispatcher(bot, storage=MemoryStorage())
 # STATE GROUPS --------------------------------------------------------------
 class InfoStates(StatesGroup):
     dialog = State()
+    candidates = State()
 
 class ComplainStates(StatesGroup):
     choose_categry = State()
@@ -54,13 +55,23 @@ class ComplainStates(StatesGroup):
 # FUNCTIONS -----------------------------------------------------------------
 
 def find_next(id=None) -> dict:
+    previous = id
     id = session.scalar(select(Tree.qid).where(Tree.pid == id))
+    candidates_property = session.scalar(select(Tree.properties).where(Tree.qid == id))
     text = session.scalar(select(Data.text).where(
         Data.id == id)).split('//delimeter//')
+    candidates = {}
+    if '<candidates>' in candidates_property:
+        for n, el in enumerate(text):
+            candidates[n] = el
+    else:
+        candidates_property = False
     photo = session.scalar(select(Images.image).where(Images.id == id))
     next = session.scalars(select(Tree.qid).where(Tree.pid == id)).all()
-    final = {'id': id, 'text': text, 'next': next, 'photo': photo}
+    
+    final = {'id': id, 'text': text, 'next': next, 'photo': photo, 'previous': previous, 'candidates_property': candidates_property, 'candidates': candidates}
     return final
+
 
 def find_keyboard(id) -> ReplyKeyboardMarkup | InlineKeyboardMarkup:
     keyboard_type = session.scalar(
@@ -101,9 +112,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
     await message.answer(text=text, reply_markup=keyboard)
 
 
-
-
-
 # INFO ----------------------------------------------------------------------
 
 @dp.callback_query_handler(Text(equals='go-back'), state=InfoStates.dialog)
@@ -125,7 +133,6 @@ async def goCats(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message_handler(Text(equals=back_button_text), state=InfoStates.dialog)
 async def goBackReply(message: types.Message, state: FSMContext):
-    
     await bot.send_chat_action(message.from_user.id, action='typing')
     async with state.proxy() as st:
         id = st['prev']
@@ -141,7 +148,20 @@ async def goBackReply(message: types.Message, state: FSMContext):
         return await message.answer(text=text, reply_markup=keyboard)
     await message.answer(text='Вернул назад', reply_markup=keyboard.add(reply_back_button))
     async with state.proxy() as st:
-        st['prev'] = data['id']
+        st['prev'] = data['previous']
+
+@dp.callback_query_handler(Text(startswith='candidate'), state=InfoStates.dialog)
+async def callback_candidates(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    try:
+        id = int((callback.data.split('-'))[1])
+        async with state.proxy() as st:
+            await callback.message.edit_text(text=st['candidates'][callback.message['message_id']][id], reply_markup=InlineKeyboardMarkup(row_width=3)
+                                    .insert(InlineKeyboardButton(text='<<', callback_data=f'candidate-{id-1}'))
+                                    .insert(InlineKeyboardButton(text=f" {id+1} / {len(st['candidates'][callback.message['message_id']])}", callback_data='candidate'))
+                                    .insert(InlineKeyboardButton(text='>>', callback_data=f'candidate-{id+1}')))
+    except Exception:
+        pass
 
 @dp.callback_query_handler(state=InfoStates.dialog)
 async def callback_dialog(callback: types.CallbackQuery, state: FSMContext):
@@ -170,6 +190,28 @@ async def dailog(message: types.Message, state: FSMContext):
         if temp:
             break
     data = find_next(temp)
+    if data['candidates_property']:
+        async with state.proxy() as st:
+            message = await message.answer(text=data['candidates'][0], reply_markup=InlineKeyboardMarkup(row_width=3)
+                                           .insert(InlineKeyboardButton(text='<<', callback_data='candidate-0'))
+                                           .insert(InlineKeyboardButton(text=f" 1 / {len(data['candidates'])}", callback_data='candidate'))
+                                           .insert(InlineKeyboardButton(text='>>', callback_data='candidate-1')))
+            st['candidates'][message["message_id"]] = data['candidates']
+            
+        keyboard = find_keyboard(data['id'])
+        if isinstance(keyboard, ReplyKeyboardRemove):
+            await message.answer(text='Используйте инлайн-кнопки для навигации', reply_markup=keyboard)
+            await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+            await asyncio.sleep(1)
+            return await message.answer(text='Вы получили ответы на все вопросы', reply_markup=InlineKeyboardMarkup(row_width=1).add(inline_back_button).add(inline_cat_button))
+        elif isinstance(keyboard, ReplyKeyboardMarkup):
+            await message.answer(text='Используйте инлайн-кнопки для навигации', reply_markup=keyboard.add(reply_back_button))
+        elif isinstance(keyboard, InlineKeyboardMarkup):
+            await message.answer(text='Используйте инлайн-кнопки для навигации', reply_markup=keyboard.add(inline_back_button))
+        async with state.proxy() as st:
+            st['prev'] = data['id']
+        return
+        
     if data['photo']:
         photo = InputFile(data['photo'])
         if len(data['text']) > 2:
@@ -200,7 +242,10 @@ async def dailog(message: types.Message, state: FSMContext):
         await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
         await asyncio.sleep(1)
         return await message.answer(text='Вы получили ответы на все вопросы', reply_markup=InlineKeyboardMarkup(row_width=1).add(inline_back_button).add(inline_cat_button))
-    await message.answer(text=text, reply_markup=keyboard.add(reply_back_button))
+    elif isinstance(keyboard, ReplyKeyboardMarkup):
+        await message.answer(text=text, reply_markup=keyboard.add(reply_back_button))
+    elif isinstance(keyboard, InlineKeyboardMarkup):
+        await message.answer(text=text, reply_markup=keyboard.add(inline_back_button))
     async with state.proxy() as st:
         st['prev'] = data['id']
 
@@ -210,6 +255,8 @@ async def dailog(message: types.Message, state: FSMContext):
 async def define_category(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     if int(callback.data) == 2:
+        async with state.proxy() as st:
+            st['candidates'] = {}
         await InfoStates.dialog.set()
     elif int(callback.data) == 17:
         await ComplainStates.choose_categry.set()
