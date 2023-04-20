@@ -145,7 +145,7 @@ async def goBackReply(message: types.Message, state: FSMContext):
     except:
         return await message.answer(text='Вы получили ответы на все вопросы', reply_markup=InlineKeyboardMarkup(row_width=1).add(inline_cat_button))
     if isinstance(keyboard, InlineKeyboardMarkup):
-        return await message.answer(text=text, reply_markup=keyboard)
+        return await message.answer(text='Вернул назад', reply_markup=keyboard.add(inline_cat_button))
     await message.answer(text='Вернул назад', reply_markup=keyboard.add(reply_back_button))
     async with state.proxy() as st:
         st['prev'] = data['previous']
