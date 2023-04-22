@@ -118,6 +118,8 @@ body {
 
 .tree li a {
 	/* border: 1px solid #ccc; */
+	max-width: 900px;
+	min-width: 500px;
 	padding: 10px 15px;
 	text-decoration: none;
 	color: #141313;
@@ -173,10 +175,8 @@ body {
 
 
 .full-tree {
+	display: inline-block;
 	user-select: none;
-	position: absolute;
-	left: 0;
-	top: 250;
 }
 
 .full-tree ul {
@@ -257,6 +257,8 @@ body {
 }
 
 .full-tree li p {
+	max-width: 900px;
+	min-width: 500px;
 	/* border: 1px solid #ccc; */
 	padding: 10px 15px;
 	text-decoration: none;
@@ -321,6 +323,7 @@ body {
 }
 
 .tree {
+	display: inline-block;
 	margin-top: 30px;
 }
 
@@ -475,6 +478,30 @@ body {
 
 
 .list ul li a.text {
+	border: 2px solid rgb(104, 145, 233);
+	border-left: 2px solid #141313;
+	padding: 10px;
+}
+
+.list ul li p {
+	box-sizing: content-box;
+	padding-left: 10px;
+	color: #141313;
+	text-decoration: none;
+	border: none;
+	background: none;
+	display: block;
+}
+
+
+.list ul li p.button {
+	border: 2px solid rgb(82, 55, 156);
+	border-left: 2px solid #141313;
+	padding: 10px;
+}
+
+
+.list ul li p.text {
 	border: 2px solid rgb(104, 145, 233);
 	border-left: 2px solid #141313;
 	padding: 10px;

@@ -21,7 +21,11 @@
             {% endif %}
             <input type="submit" value="Изменить">
     </form>
+    {% if current_property[0] != '<button>'%}
+
     <button id="button">Добавить разделитель</button>
+    {% endif %}
+
     <script>
         button.onclick = () => {
           input.setRangeText("//delimeter//", input.selectionStart, input.selectionEnd, "end");
@@ -30,10 +34,10 @@
       </script>
     <div class="delete-leaf">
         {% if current_property[0] != '<button>' %}
-        <a class="delete" href="/info-tree/delete-photo/{{id}}"
+        <a class="delete" href="/complain-tree/delete-photo/{{id}}"
             onclick="return confirm('Вы уверены, что хотиле удалить фото?')">Удалить фото</a>
             {% endif %}
-        <a class="delete" href="/info-tree/delete/{{id}}"
+        <a class="delete" href="/complain-tree/delete/{{id}}"
             onclick="return confirm('Вы уверены, что хотиле удалить элемент? Все дочерние элементы тоже удалятся!')">Удалить элемент</a>
     </div>
 </div>

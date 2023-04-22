@@ -9,8 +9,13 @@ from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher.filters import Text
+
 from sqlalchemy import select
 
+import smtplib 
+from email.mime.multipart import MIMEMultipart                 
+from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
 
 from database.database import Tree, Data, Images, session
 
@@ -22,6 +27,9 @@ if os.path.exists(dotenv_path):
 TOKEN = os.environ.get('TOKEN')
 MAIL_BOX = os.environ.get('MAIL_BOX')
 MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
+TO_MAIL_BOX = os.environ.get('TO_MAIL_BOX')
+
+COMPLAIN_COLLECTED_TEXT = 'Благодарим Вас за вашу гражданскую активность, ваше обращение будет рассмотрено экспертами Общественного штаба по контролю и наблюдению за выборами Челябинской области'
 
 
 cat_button_text = '<< К категориям'
@@ -38,42 +46,41 @@ bot = Bot(TOKEN, parse_mode='HTML')
 dp = Dispatcher(bot, storage=MemoryStorage())
 
 # STATE GROUPS --------------------------------------------------------------
+
 class InfoStates(StatesGroup):
     dialog = State()
     candidates = State()
 
 class ComplainStates(StatesGroup):
-    choose_categry = State()
+    choose_category = State()
+    wait_category = State()
     wait_text = State()
     wait_photo = State()
     additionals = State()
 
-
 # ---------------------------------------------------------------------------
-
 
 # FUNCTIONS -----------------------------------------------------------------
 
-def find_next(id=None) -> dict:
+def find_next(id) -> dict:
     previous = id
     id = session.scalar(select(Tree.qid).where(Tree.pid == id))
-    candidates_property = session.scalar(select(Tree.properties).where(Tree.qid == id))
+    properties = session.scalar(select(Tree.properties).where(Tree.qid == id))
+    if not id:
+        return None
     text = session.scalar(select(Data.text).where(
         Data.id == id)).split('//delimeter//')
     candidates = {}
-    if '<candidates>' in candidates_property:
+    if '<candidates>' in properties:
         for n, el in enumerate(text):
             candidates[n] = el
-    else:
-        candidates_property = False
     photo = session.scalar(select(Images.image).where(Images.id == id))
     next = session.scalars(select(Tree.qid).where(Tree.pid == id)).all()
     
-    final = {'id': id, 'text': text, 'next': next, 'photo': photo, 'previous': previous, 'candidates_property': candidates_property, 'candidates': candidates}
+    final = {'id': id, 'text': text, 'next': next, 'photo': photo, 'previous': previous, 'properties': properties, 'candidates': candidates}
     return final
 
-
-def find_keyboard(id) -> ReplyKeyboardMarkup | InlineKeyboardMarkup:
+def find_keyboard(id) -> ReplyKeyboardMarkup | InlineKeyboardMarkup | ReplyKeyboardRemove:
     keyboard_type = session.scalar(
         select(Tree.properties).where(Tree.qid == id)).split(', ')[1]
     button_ids = session.scalars(select(Tree.qid).where(
@@ -91,20 +98,70 @@ def find_keyboard(id) -> ReplyKeyboardMarkup | InlineKeyboardMarkup:
         return keyboard
     if keyboard_type == '<ikb>':
         keyboard = InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=text, callback_data=callback_data) for text, callback_data in buttons])
-    elif keyboard_type == '<kb>':
+    else:
         keyboard = ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True).add(*[KeyboardButton(text=text) for text, callback_data in buttons])
     return keyboard
 
-# ---------------------------------------------------------------------------
+async def set_states(data):
+    if '<additionals>' in data['properties']:
+        return await ComplainStates.additionals.set()
+    elif '<choosecat>' in data['properties']:
+        return await ComplainStates.choose_category.set()
+    elif '<waittext>' in data['properties']:
+        return await ComplainStates.wait_text.set()
+    elif '<waitphoto>' in data['properties']:
+        return await ComplainStates.wait_photo.set()
 
+async def text_to_id(message: types.Message, state: FSMContext):
+    async with state.proxy() as st:
+        id = st['prev']
+    children = session.scalars(select(Tree.qid).where(Tree.pid == id)).all()
+    for id in children:
+        temp = session.scalar(select(Data.id).where(Data.text == message.text).where(Data.id == id))
+        if temp:
+            return temp
+    
+async def send_letter(state: FSMContext):
+    async with state.proxy() as st:
+        category = st['complain']['title']
+        try:
+            photo_path = st['complain']['photo_path']
+            photo_name = st['complain']['photo_name']
+        except KeyError:
+            photo_path = None
+        text = st['complain']['text']
+    message = MIMEMultipart()
+    message['From'] = MAIL_BOX
+    message['To'] = TO_MAIL_BOX
+    message['Subject'] = f'Новая жалоба: {category}'
+    body = ''
+    for el in text:
+        body += f'\t{el}\n'
+    message.attach(MIMEText(body, 'plain'))
+    if photo_path:
+        with open(f'{photo_path}', 'rb') as fp:
+            img = MIMEImage(fp.read())
+            img.add_header('Content-Disposition', 'attachment', filename=f'{photo_name}')
+            message.attach(img)
+    smtpObj = smtplib.SMTP('smtp.mail.ru')
+    smtpObj.starttls()
+    smtpObj.login(MAIL_BOX, MAIL_PASSWORD)
+    smtpObj.send_message(message)
+    smtpObj.quit()
+    if photo_path:
+        os.remove(os.path.join(os.path.dirname(__file__), photo_path))
+    
+# ---------------------------------------------------------------------------
 
 @dp.message_handler(commands=['start'], state=['*'])
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.finish()
-    data = find_next()
+    data = find_next(None)
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
             await message.answer(text=text)
+            await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+            await asyncio.sleep(0.2)
         text = data['text'][-1]
     else:
         text = data['text'][0]
@@ -114,7 +171,8 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
 # INFO ----------------------------------------------------------------------
 
-@dp.callback_query_handler(Text(equals='go-back'), state=InfoStates.dialog)
+# @dp.callback_query_handler(Text(equals='go-back'), state=InfoStates.dialog)
+@dp.callback_query_handler(Text(equals='go-back'), state=['*'])
 async def goBack(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     async with state.proxy() as st:
@@ -123,15 +181,25 @@ async def goBack(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer(text='Вернул назад', reply_markup=keyboard.add(reply_back_button))
 
 
-@dp.callback_query_handler(Text(equals='go-cats'), state=InfoStates.dialog)
+# @dp.callback_query_handler(Text(equals='go-cats'), state=InfoStates.dialog)
+@dp.callback_query_handler(Text(equals='go-cats'), state=['*'])
 async def goCats(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
-    data = find_next()
+    data = find_next(None)
     text = data['text'][-1]
     keyboard = find_keyboard(data['id'])
     await callback.message.edit_text(text=text, reply_markup=keyboard)
+    await state.finish()
 
-@dp.message_handler(Text(equals=back_button_text), state=InfoStates.dialog)
+@dp.message_handler(Text(equals=cat_button_text), state=['*'])
+async def goCatsReply(message: types.Message, state: FSMContext):
+    data = find_next()
+    text = data['text'][-1]
+    keyboard = find_keyboard(data['id'])
+    await message.answer(text=text, reply_markup=keyboard)
+    await state.finish()
+
+@dp.message_handler(Text(equals=back_button_text), state=['*'])
 async def goBackReply(message: types.Message, state: FSMContext):
     await bot.send_chat_action(message.from_user.id, action='typing')
     async with state.proxy() as st:
@@ -171,6 +239,8 @@ async def callback_dialog(callback: types.CallbackQuery, state: FSMContext):
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
             await callback.message.answer(text=text)
+            await bot.send_chat_action(chat_id=callback.message.from_user.id, action='typing')
+            await asyncio.sleep(0.2)
         text = data['text'][-1]
     else:
         text = data['text'][0]
@@ -190,7 +260,7 @@ async def dailog(message: types.Message, state: FSMContext):
         if temp:
             break
     data = find_next(temp)
-    if data['candidates_property']:
+    if data['properties'] == '<candidates>':
         async with state.proxy() as st:
             message = await message.answer(text=data['candidates'][0], reply_markup=InlineKeyboardMarkup(row_width=3)
                                            .insert(InlineKeyboardButton(text='<<', callback_data='candidate-0'))
@@ -233,6 +303,8 @@ async def dailog(message: types.Message, state: FSMContext):
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
             await message.answer(text=text)
+            await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+            asyncio.sleep(0.2)
         text = data['text'][-1]
     else:
         text = data['text'][0]
@@ -251,6 +323,147 @@ async def dailog(message: types.Message, state: FSMContext):
 
 # ---------------------------------------------------------------------------
 
+
+# COMPLAINS -----------------------------------------------------------------
+
+@dp.callback_query_handler(state=ComplainStates.wait_photo)
+async def skip_photo(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await bot.send_chat_action(chat_id=callback.message.from_user.id, action='typing')
+    async with state.proxy() as st:
+        prev = st['prev']
+    data = find_next(prev)
+    if not data:
+        await send_letter(state)
+        await state.finish()
+        return await callback.message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+    await set_states(data)
+    if len(data['text']) > 1:
+        for text in data['text'][:-1]:
+            await callback.message.answer(text=text)
+            await bot.send_chat_action(chat_id=callback.message.from_user.id, action='typing')
+            await asyncio.sleep(0.2)
+        text = data['text'][-1]
+    else:
+        text = data['text'][0]
+    if '<additionals>' in data['properties']:
+        keyboard = find_keyboard(data['id'])
+        await callback.message.answer(text=text, reply_markup=keyboard)
+    else:    
+        await callback.message.answer(text=text)
+    async with state.proxy() as st:
+        st['prev'] = data['id']
+
+@dp.message_handler(content_types=['any'], state=ComplainStates.wait_photo)
+async def wait_text(message: types.Message, state: FSMContext):
+    await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+    async with state.proxy() as st:
+            prev = st['prev']
+    if message.photo:
+        category = st['complain']['title'].lower().strip().replace(' ', '_')
+        await message.photo[-1].download(destination_file=f'database\complain_photos/{category}_{message.message_id}.jpg')
+        async with state.proxy() as st:
+            st['complain']['photo_path'] = f'database\complain_photos/{category}_{message.message_id}.jpg'
+            st['complain']['photo_name'] = f'{category}_{message.message_id}.jpg'
+        data = find_next(prev)
+        if not data:
+            await send_letter(state)
+            await state.finish()
+            return await message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+        await set_states(data)
+        if len(data['text']) > 1:
+            for text in data['text'][:-1]:
+                await message.answer(text=text)
+                await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+                asyncio.sleep(0.2)
+            text = data['text'][-1]
+        else:
+            text = data['text'][0]
+        if '<additionals>' in data['properties']:
+            keyboard = find_keyboard(data['id'])
+            await message.answer(text=text, reply_markup=keyboard)
+        else:
+            await message.answer(text=text)
+        async with state.proxy() as st:
+            st['prev'] = data['id']
+    else:
+        await ComplainStates.wait_photo.set()
+        await message.reply(text='Пришлите, пожалуйста, фотографию', reply_markup=InlineKeyboardMarkup()
+                            .add(InlineKeyboardButton(text='Пропустить добавление фото', callback_data='skip-photo')))
+
+@dp.message_handler(state=ComplainStates.wait_text)
+async def wait_text(message: types.Message, state: FSMContext):
+    await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+    async with state.proxy() as st:
+        st['complain']['text'].append(message.text)
+        prev = st['prev']
+    data = find_next(prev)
+    if not data:
+        await send_letter(state)
+        await state.finish()
+        return await message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+    await set_states(data)
+    if len(data['text']) > 1:
+        for text in data['text'][:-1]:
+            await message.answer(text=text)
+            await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+            await asyncio.sleep(0.2)
+        text = data['text'][-1]
+    else:
+        text = data['text'][0]
+    if '<additionals>' in data['properties']:
+        keyboard = find_keyboard(data['id'])
+        await message.answer(text=text, reply_markup=keyboard)
+    else:
+        await message.answer(text=text, reply_markup=ReplyKeyboardRemove())
+    async with state.proxy() as st:
+        st['prev'] = data['id']
+
+
+@dp.message_handler(state=ComplainStates.additionals)
+async def wait_category(message: types.Message, state: FSMContext):
+    await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+    temp = await text_to_id(message, state)
+    data = find_next(temp)
+    if not data:
+        await state.finish()
+        return await message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+    await set_states(data)
+    if len(data['text']) > 1:
+        for text in data['text'][:-1]:
+            await message.answer(text=text)
+            await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+            await asyncio.sleep(0.2)
+        text = data['text'][-1]
+    else:
+        text = data['text'][0]
+    keyboard = find_keyboard(data['id'])
+    await message.answer(text=text, reply_markup=keyboard)
+    async with state.proxy() as st:
+        st['prev'] = data['id']
+
+@dp.message_handler(state=ComplainStates.choose_category)
+async def choose_category(message: types.Message, state: FSMContext):
+    await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+    temp = await text_to_id(message, state)
+    data = find_next(temp)
+    if len(data['text']) > 1:
+        for text in data['text'][:-1]:
+            await message.answer(text=text)
+            await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+            await asyncio.sleep(0.2)
+        text = data['text'][-1]
+    else:
+        text = data['text'][0]
+    keyboard = find_keyboard(data['id'])
+    await message.answer(text=text, reply_markup=keyboard)
+    await set_states(data)
+    async with state.proxy() as st:
+        st['complain']['title'] = message.text
+        st['prev'] = data['id']
+
+# ---------------------------------------------------------------------------
+
 @dp.callback_query_handler()
 async def define_category(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -259,19 +472,29 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
             st['candidates'] = {}
         await InfoStates.dialog.set()
     elif int(callback.data) == 17:
-        await ComplainStates.choose_categry.set()
+        async with state.proxy() as st:
+            st['complain'] = {}
+            st['complain']['text'] = []
+        await ComplainStates.choose_category.set()
+        
     await bot.send_chat_action(chat_id=callback.message.from_user.id, action='typing')
     data = find_next(int(callback.data))
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
-            await callback.message.answer(text=text)
+            await callback.message.edit_text(text=text)
+            await bot.send_chat_action(chat_id=callback.message.from_user.id, action='typing')
+            await asyncio.sleep(0.2)
         text = data['text'][-1]
     else:
         text = data['text'][0]
     keyboard = find_keyboard(data['id'])
-    await callback.message.edit_text(text=text, reply_markup=keyboard.add(inline_cat_button))
+    if isinstance(keyboard, InlineKeyboardMarkup):
+        await callback.message.edit_text(text=text, reply_markup=keyboard.add(inline_cat_button))
+    elif isinstance(keyboard, ReplyKeyboardMarkup):
+        await callback.message.answer(text=text, reply_markup=keyboard.add(reply_cat_button))
     async with state.proxy() as st:
         st['prev'] = data['id']
+
 
 if __name__ == '__main__':
     try:
