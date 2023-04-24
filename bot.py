@@ -12,10 +12,12 @@ from aiogram.dispatcher.filters import Text
 
 from sqlalchemy import select
 
-import smtplib 
+import smtplib
+from email import encoders
 from email.mime.multipart import MIMEMultipart                 
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
+from email.mime.base import MIMEBase
 
 from database.database import Tree, Data, Images, session
 
@@ -29,7 +31,7 @@ MAIL_BOX = os.environ.get('MAIL_BOX')
 MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
 TO_MAIL_BOX = os.environ.get('TO_MAIL_BOX')
 
-COMPLAIN_COLLECTED_TEXT = 'Благодарим Вас за вашу гражданскую активность, ваше обращение будет рассмотрено экспертами Общественного штаба по контролю и наблюдению за выборами Челябинской области'
+COMPLAIN_COLLECTED_TEXT = 'Благодарим Вас за Вашу гражданскую активность, ваше обращение будет рассмотрено экспертами Общественного штаба по контролю и наблюдению за выборами Челябинской области'
 
 
 cat_button_text = '<< К категориям'
@@ -120,7 +122,7 @@ async def text_to_id(message: types.Message, state: FSMContext):
         temp = session.scalar(select(Data.id).where(Data.text == message.text).where(Data.id == id))
         if temp:
             return temp
-    
+        
 async def send_letter(state: FSMContext):
     async with state.proxy() as st:
         category = st['complain']['title']
@@ -129,6 +131,11 @@ async def send_letter(state: FSMContext):
             photo_name = st['complain']['photo_name']
         except KeyError:
             photo_path = None
+        try:
+            video_path = st['complain']['video_path']
+            video_name = st['complain']['video_name']
+        except KeyError:
+            video_path = None
         text = st['complain']['text']
     message = MIMEMultipart()
     message['From'] = MAIL_BOX
@@ -139,10 +146,18 @@ async def send_letter(state: FSMContext):
         body += f'\t{el}\n'
     message.attach(MIMEText(body, 'plain'))
     if photo_path:
-        with open(f'{photo_path}', 'rb') as fp:
-            img = MIMEImage(fp.read())
-            img.add_header('Content-Disposition', 'attachment', filename=f'{photo_name}')
-            message.attach(img)
+        with open(photo_path, 'rb') as fp:
+            image = MIMEImage(fp.read())
+            image.add_header('Content-Disposition', 'attachment', filename=f'{photo_name}')
+            message.attach(image)
+    elif video_path:
+        with open(video_path, 'rb') as fp:
+            video = MIMEBase('application', "octet-stream")
+            video.set_payload(fp.read())
+            encoders.encode_base64(video)
+            video.add_header('Content-Disposition', 'attachment', filename=f'{video_name}')
+            message.attach(video)
+        
     smtpObj = smtplib.SMTP('smtp.mail.ru')
     smtpObj.starttls()
     smtpObj.login(MAIL_BOX, MAIL_PASSWORD)
@@ -150,7 +165,9 @@ async def send_letter(state: FSMContext):
     smtpObj.quit()
     if photo_path:
         os.remove(os.path.join(os.path.dirname(__file__), photo_path))
-    
+        
+    elif video_path:
+        os.remove(os.path.join(os.path.dirname(__file__), video_path))
 # ---------------------------------------------------------------------------
 
 @dp.message_handler(commands=['start'], state=['*'])
@@ -193,7 +210,7 @@ async def goCats(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message_handler(Text(equals=cat_button_text), state=['*'])
 async def goCatsReply(message: types.Message, state: FSMContext):
-    data = find_next()
+    data = find_next(None)
     text = data['text'][-1]
     keyboard = find_keyboard(data['id'])
     await message.answer(text=text, reply_markup=keyboard)
@@ -281,7 +298,6 @@ async def dailog(message: types.Message, state: FSMContext):
         async with state.proxy() as st:
             st['prev'] = data['id']
         return
-        
     if data['photo']:
         photo = InputFile(data['photo'])
         if len(data['text']) > 2:
@@ -296,7 +312,11 @@ async def dailog(message: types.Message, state: FSMContext):
                 await bot.send_photo(chat_id=message.from_user.id, photo=photo, caption=text, reply_markup=keyboard)
                 await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
                 await asyncio.sleep(1)
+                async with state.proxy() as st:
+                    st['prev'] = data['id']
                 return await message.answer(text='Вы получили ответы на все вопросы', reply_markup=InlineKeyboardMarkup(row_width=1).add(inline_back_button).add(inline_cat_button))
+            async with state.proxy() as st:
+                    st['prev'] = data['id']
             return await bot.send_photo(chat_id=message.from_user.id, photo=photo, caption=text, reply_markup=keyboard.add(reply_back_button))
         else:
             await bot.send_photo(chat_id=message.from_user.id, photo=photo)
@@ -304,7 +324,7 @@ async def dailog(message: types.Message, state: FSMContext):
         for text in data['text'][:-1]:
             await message.answer(text=text)
             await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
-            asyncio.sleep(0.2)
+            await asyncio.sleep(0.2)
         text = data['text'][-1]
     else:
         text = data['text'][0]
@@ -359,12 +379,18 @@ async def wait_text(message: types.Message, state: FSMContext):
     await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
     async with state.proxy() as st:
             prev = st['prev']
-    if message.photo:
-        category = st['complain']['title'].lower().strip().replace(' ', '_')
-        await message.photo[-1].download(destination_file=f'database\complain_photos/{category}_{message.message_id}.jpg')
-        async with state.proxy() as st:
-            st['complain']['photo_path'] = f'database\complain_photos/{category}_{message.message_id}.jpg'
-            st['complain']['photo_name'] = f'{category}_{message.message_id}.jpg'
+            category = st['complain']['title'].lower().strip().replace(' ', '_')
+    if message.photo or message.video:
+        if message.photo:
+            await message.photo[-1].download(destination_file=f'database\complain_photos/{category}_{message.message_id}.jpg')
+            async with state.proxy() as st:
+                st['complain']['photo_path'] = f'database\complain_photos/{category}_{message.message_id}.jpg'
+                st['complain']['photo_name'] = f'{category}_{message.message_id}.jpg'
+        elif message.video:
+            await message.video.download(destination_file=f'database\complain_videos/{category}_{message.message_id}.mp4')
+            async with state.proxy() as st:
+                st['complain']['video_path'] = f'database\complain_videos/{category}_{message.message_id}.mp4'
+                st['complain']['video_name'] = f'{category}_{message.message_id}.mp4'
         data = find_next(prev)
         if not data:
             await send_letter(state)
@@ -375,7 +401,7 @@ async def wait_text(message: types.Message, state: FSMContext):
             for text in data['text'][:-1]:
                 await message.answer(text=text)
                 await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
-                asyncio.sleep(0.2)
+                await asyncio.sleep(0.2)
             text = data['text'][-1]
         else:
             text = data['text'][0]
@@ -426,6 +452,7 @@ async def wait_category(message: types.Message, state: FSMContext):
     temp = await text_to_id(message, state)
     data = find_next(temp)
     if not data:
+        await send_letter(state)
         await state.finish()
         return await message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
     await set_states(data)
@@ -438,7 +465,11 @@ async def wait_category(message: types.Message, state: FSMContext):
     else:
         text = data['text'][0]
     keyboard = find_keyboard(data['id'])
-    await message.answer(text=text, reply_markup=keyboard)
+    if '<additionals>' in data['properties'] and isinstance(keyboard, ReplyKeyboardRemove):
+        await message.answer(text=text, reply_markup=keyboard)
+        await message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+    else:
+        await message.answer(text=text, reply_markup=keyboard)
     async with state.proxy() as st:
         st['prev'] = data['id']
 
