@@ -408,6 +408,8 @@ async def wait_text(message: types.Message, state: FSMContext):
         if '<additionals>' in data['properties']:
             keyboard = find_keyboard(data['id'])
             await message.answer(text=text, reply_markup=keyboard)
+        elif '<waitphoto>' in data['properties']:
+            await message.answer(text=text, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(text='Пропустить добавление фото', callback_data='skip-photo')))
         else:
             await message.answer(text=text)
         async with state.proxy() as st:
@@ -417,8 +419,10 @@ async def wait_text(message: types.Message, state: FSMContext):
         await message.reply(text='Пришлите, пожалуйста, фотографию', reply_markup=InlineKeyboardMarkup()
                             .add(InlineKeyboardButton(text='Пропустить добавление фото', callback_data='skip-photo')))
 
-@dp.message_handler(state=ComplainStates.wait_text)
+@dp.message_handler(content_types=['any'], state=ComplainStates.wait_text)
 async def wait_text(message: types.Message, state: FSMContext):
+    if message.photo or message.video:
+        return await message.reply('Пришлите, пожалуйста, текст')
     await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
     async with state.proxy() as st:
         st['complain']['text'].append(message.text)
@@ -440,6 +444,8 @@ async def wait_text(message: types.Message, state: FSMContext):
     if '<additionals>' in data['properties']:
         keyboard = find_keyboard(data['id'])
         await message.answer(text=text, reply_markup=keyboard)
+    elif '<waitphoto>' in data['properties']:
+        await message.answer(text=text, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(text='Пропустить добавление фото', callback_data='skip-photo')))
     else:
         await message.answer(text=text, reply_markup=ReplyKeyboardRemove())
     async with state.proxy() as st:
@@ -466,8 +472,12 @@ async def wait_category(message: types.Message, state: FSMContext):
         text = data['text'][0]
     keyboard = find_keyboard(data['id'])
     if '<additionals>' in data['properties'] and isinstance(keyboard, ReplyKeyboardRemove):
+        await send_letter(state)
+        await state.finish()
         await message.answer(text=text, reply_markup=keyboard)
         await message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+    elif '<waitphoto>' in data['properties']:
+        await message.answer(text=text, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(text='Пропустить добавление фото', callback_data='skip-photo')))
     else:
         await message.answer(text=text, reply_markup=keyboard)
     async with state.proxy() as st:
