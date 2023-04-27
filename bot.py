@@ -31,7 +31,7 @@ MAIL_BOX = os.environ.get('MAIL_BOX')
 MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
 TO_MAIL_BOX = os.environ.get('TO_MAIL_BOX')
 
-COMPLAIN_COLLECTED_TEXT = 'Благодарим Вас за Вашу гражданскую активность, ваше обращение будет рассмотрено экспертами Общественного штаба по контролю и наблюдению за выборами Челябинской области'
+COMPLAIN_COLLECTED_TEXT = 'Благодарим Вас за Вашу гражданскую активность, Ваше обращение будет рассмотрено экспертами Общественного штаба по контролю и наблюдению за выборами Челябинской области'
 
 
 cat_button_text = '<< К категориям'
@@ -195,6 +195,7 @@ async def goBack(callback: types.CallbackQuery, state: FSMContext):
     async with state.proxy() as st:
         id = st['prev']
     keyboard = find_keyboard(id)
+    await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
     await callback.message.answer(text='Вернул назад', reply_markup=keyboard.add(reply_back_button))
 
 
@@ -220,7 +221,10 @@ async def goCatsReply(message: types.Message, state: FSMContext):
 async def goBackReply(message: types.Message, state: FSMContext):
     await bot.send_chat_action(message.from_user.id, action='typing')
     async with state.proxy() as st:
-        id = st['prev']
+        try:
+            id = st['prev']
+        except Exception:
+            return
     id = session.scalar(select(Tree.pid).where(Tree.qid == id))
     id = session.scalar(select(Tree.pid).where(Tree.qid == id))
     data = find_next(id)
@@ -277,7 +281,7 @@ async def dailog(message: types.Message, state: FSMContext):
         if temp:
             break
     data = find_next(temp)
-    if data['properties'] == '<candidates>':
+    if '<candidates>' in data['properties'] :
         async with state.proxy() as st:
             message = await message.answer(text=data['candidates'][0], reply_markup=InlineKeyboardMarkup(row_width=3)
                                            .insert(InlineKeyboardButton(text='<<', callback_data='candidate-0'))
