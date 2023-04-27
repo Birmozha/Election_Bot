@@ -19,7 +19,7 @@ from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from email.mime.base import MIMEBase
 
-from database.database import Tree, Data, Images, session
+from database.database import Tree, Data, Images, Links, session
 
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
 if os.path.exists(dotenv_path):
@@ -100,6 +100,8 @@ def find_keyboard(id) -> ReplyKeyboardMarkup | InlineKeyboardMarkup | ReplyKeybo
         return keyboard
     if keyboard_type == '<ikb>':
         keyboard = InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=text, callback_data=callback_data) for text, callback_data in buttons])
+    elif keyboard_type == '<link>':
+        keyboard = InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=text.split('//delimeter//')[0], callback_data='link', url=text.split('//delimeter//')[1].strip()) for text, callback_data in buttons])
     else:
         keyboard = ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True).add(*[KeyboardButton(text=text) for text, callback_data in buttons])
     return keyboard
@@ -165,7 +167,6 @@ async def send_letter(state: FSMContext):
     smtpObj.quit()
     if photo_path:
         os.remove(os.path.join(os.path.dirname(__file__), photo_path))
-        
     elif video_path:
         os.remove(os.path.join(os.path.dirname(__file__), video_path))
 # ---------------------------------------------------------------------------
@@ -188,7 +189,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
 # INFO ----------------------------------------------------------------------
 
-# @dp.callback_query_handler(Text(equals='go-back'), state=InfoStates.dialog)
 @dp.callback_query_handler(Text(equals='go-back'), state=['*'])
 async def goBack(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -199,7 +199,6 @@ async def goBack(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer(text='Вернул назад', reply_markup=keyboard.add(reply_back_button))
 
 
-# @dp.callback_query_handler(Text(equals='go-cats'), state=InfoStates.dialog)
 @dp.callback_query_handler(Text(equals='go-cats'), state=['*'])
 async def goCats(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -353,6 +352,7 @@ async def dailog(message: types.Message, state: FSMContext):
 @dp.callback_query_handler(state=ComplainStates.wait_photo)
 async def skip_photo(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
+    await bot.delete_message(chat_id=callback.message.chat.id, message_id=callback.message.message_id)
     await bot.send_chat_action(chat_id=callback.message.from_user.id, action='typing')
     async with state.proxy() as st:
         prev = st['prev']
@@ -501,11 +501,30 @@ async def choose_category(message: types.Message, state: FSMContext):
     else:
         text = data['text'][0]
     keyboard = find_keyboard(data['id'])
+    if '<link>' in data['properties']:
+        await message.answer(text=text, reply_markup=keyboard)
+        data = find_next(data['next'][0])
+        if not data:
+            await state.finish()
+            return await message.answer(text='Вернуться обратно?', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+        if len(data['text']) > 1:
+            for text in data['text'][:-1]:
+                await message.answer(text=text)
+                await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+                await asyncio.sleep(0.2)
+            text = data['text'][-1]
+        else:
+            text = data['text'][0]
+        keyboard = find_keyboard(data['id'])
     await message.answer(text=text, reply_markup=keyboard)
     await set_states(data)
     async with state.proxy() as st:
         st['complain']['title'] = message.text
         st['prev'] = data['id']
+        data = find_next(st['prev'])
+    if not data:
+        await state.finish()
+        return await message.answer(text='Вернуться обратно?', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
 
 # ---------------------------------------------------------------------------
 

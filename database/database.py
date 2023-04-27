@@ -22,6 +22,11 @@ class Images(Base):
     __tablename__ = "images"
     id: Mapped[int] = mapped_column(ForeignKey('data.id'), primary_key=True)
     image: Mapped[str] = mapped_column()
+    
+class Links(Base):
+    __tablename__ = "links"
+    id: Mapped[int] = mapped_column(ForeignKey('data.id'), primary_key=True)
+    text: Mapped[str] = mapped_column()
 
 engine = create_engine("sqlite:///database/data.db")
 
