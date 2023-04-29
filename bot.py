@@ -19,7 +19,7 @@ from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from email.mime.base import MIMEBase
 
-from database.database import Tree, Data, Images, Links, session
+from database.database import Tree, Data, Images, session
 
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
 if os.path.exists(dotenv_path):
@@ -106,12 +106,15 @@ def find_keyboard(id) -> ReplyKeyboardMarkup | InlineKeyboardMarkup | ReplyKeybo
         keyboard = ReplyKeyboardMarkup(row_width=1, one_time_keyboard=True, resize_keyboard=True).add(*[KeyboardButton(text=text) for text, callback_data in buttons])
     return keyboard
 
-async def set_states(data):
+async def set_states(data, state: FSMContext):
     if '<additionals>' in data['properties']:
         return await ComplainStates.additionals.set()
     elif '<choosecat>' in data['properties']:
         return await ComplainStates.choose_category.set()
     elif '<waittext>' in data['properties']:
+        async with state.proxy() as st:
+            st['prefix'] = data['text'][-1]
+            data['text'] = data['text'][:-1]
         return await ComplainStates.wait_text.set()
     elif '<waitphoto>' in data['properties']:
         return await ComplainStates.wait_photo.set()
@@ -361,7 +364,7 @@ async def skip_photo(callback: types.CallbackQuery, state: FSMContext):
         await send_letter(state)
         await state.finish()
         return await callback.message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
-    await set_states(data)
+    await set_states(data, state)
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
             await callback.message.answer(text=text)
@@ -400,7 +403,7 @@ async def wait_text(message: types.Message, state: FSMContext):
             await send_letter(state)
             await state.finish()
             return await message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
-        await set_states(data)
+        await set_states(data, state)
         if len(data['text']) > 1:
             for text in data['text'][:-1]:
                 await message.answer(text=text)
@@ -429,14 +432,14 @@ async def wait_text(message: types.Message, state: FSMContext):
         return await message.reply('Пришлите, пожалуйста, текст')
     await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
     async with state.proxy() as st:
-        st['complain']['text'].append(message.text)
+        st['complain']['text'].append(f"{st['prefix']}: {message.text}")
         prev = st['prev']
     data = find_next(prev)
     if not data:
         await send_letter(state)
         await state.finish()
         return await message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
-    await set_states(data)
+    await set_states(data, state)
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
             await message.answer(text=text)
@@ -465,7 +468,7 @@ async def wait_category(message: types.Message, state: FSMContext):
         await send_letter(state)
         await state.finish()
         return await message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
-    await set_states(data)
+    await set_states(data, state)
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
             await message.answer(text=text)
@@ -517,7 +520,7 @@ async def choose_category(message: types.Message, state: FSMContext):
             text = data['text'][0]
         keyboard = find_keyboard(data['id'])
     await message.answer(text=text, reply_markup=keyboard)
-    await set_states(data)
+    await set_states(data, state)
     async with state.proxy() as st:
         st['complain']['title'] = message.text
         st['prev'] = data['id']
