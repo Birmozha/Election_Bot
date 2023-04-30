@@ -36,7 +36,6 @@ ADMIN_IDS = [387605921]
 
 COMPLAIN_COLLECTED_TEXT = 'Благодарим Вас за Вашу гражданскую активность, Ваше обращение будет рассмотрено экспертами Общественного штаба по контролю и наблюдению за выборами Челябинской области'
 
-
 cat_button_text = '<< К категориям'
 inline_cat_button = InlineKeyboardButton(text=cat_button_text, callback_data='go-cats')
 reply_cat_button = KeyboardButton(text=cat_button_text)
@@ -595,7 +594,7 @@ async def admin_handler(callback: types.CallbackQuery, state: FSMContext):
             return await callback.message.answer('Действующего опроса нет')
         text_results = 'Результаты:\n\n'
         for result in results:
-            text_results += str('<b>' + result.option.split('-> ')[1] + '</b>') + ':    ' + str(result.count) + '\n'
+            text_results += str('<b>' + result.option.split('🔸 ')[1] + '</b>') + ':    ' + str(result.count) + '\n'
         await callback.message.answer(text_results)
     elif callback.data == 'finish-current':
         await callback.answer()
@@ -604,14 +603,12 @@ async def admin_handler(callback: types.CallbackQuery, state: FSMContext):
             return await callback.message.answer('Действующего опроса нет')
         text_results = 'Результаты:\n\n'
         for result in results:
-            text_results += str('<b>' + result.option.split('-> ')[1] + '</b>') + ':    ' + str(result.count) + '\n'
+            text_results += str('<b>' + result.option.split('🔸 ')[1] + '</b>') + ':    ' + str(result.count) + '\n'
         await callback.message.answer(text_results)
-        session.execute(text("PRAGMA foreign_keys=ON"))
         session.query(Poll).delete()
         session.commit()
     elif callback.data == 'new-poll':
         await callback.answer()
-        session.execute(text("PRAGMA foreign_keys=ON"))
         session.query(Poll).delete()
         session.commit()
         await callback.message.answer(text='Введите вопрос')
@@ -631,7 +628,7 @@ async def admin_handler(message: types.Message, state: FSMContext):
 
 @dp.message_handler(state=AdminStates.wait_answer)
 async def admin_handler(message: types.Message, state: FSMContext):
-    option = PollOptions(pid = 1, option = '-> ' + message.text)
+    option = PollOptions(pid = 1, option = '🔸 ' + message.text)
     session.add(option)
     session.commit()
     if len(session.scalars(select(PollOptions).where(PollOptions.pid == 1)).all()) < 2:
@@ -660,16 +657,16 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
         try:
             passed = session.scalar(select(Poll.passed).where(Poll.id == 1)).split( )
         except AttributeError:
-            return await callback.message.answer(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+            return await callback.message.edit_text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
         if str(callback.from_user.id) in passed:
-            return await callback.message.answer(text='Вы уже проходили опрос', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+            return await callback.message.edit_text(text='Вы уже проходили опрос', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
         else:
             try:
                 await PollStates.poll.set()
                 await bot.delete_message(chat_id=callback.message.chat.id, message_id=callback.message.message_id)
                 return await get_poll(callback, state)
             except Exception:
-                return await callback.message.answer(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+                return await callback.message.edit_text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
     elif int(callback.data) == 17:
         async with state.proxy() as st:
             st['complain'] = {}
@@ -697,6 +694,7 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
 
 if __name__ == '__main__':
     try:
+        session.execute(text("PRAGMA foreign_keys=ON"))
         executor.start_polling(dp, skip_updates=True)
     except Exception as exception:
         print(exception)
