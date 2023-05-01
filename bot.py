@@ -56,7 +56,7 @@ class StartStates(StatesGroup):
 
 class InfoStates(StatesGroup):
     dialog = State()
-    candidates = State()
+
 
 class ComplainStates(StatesGroup):
     choose_category = State()
@@ -334,6 +334,32 @@ async def dailog(message: types.Message, state: FSMContext):
             await message.answer(text='Используйте инлайн-кнопки для навигации', reply_markup=keyboard.add(reply_back_button))
         elif isinstance(keyboard, InlineKeyboardMarkup):
             await message.answer(text='Используйте инлайн-кнопки для навигации', reply_markup=keyboard.add(inline_back_button))
+        async with state.proxy() as st:
+            st['prev'] = data['id']
+        return
+    elif '<links>' in data['properties'] :
+        texts = []
+        buttons = []
+        links = []
+        for el in data['text']:
+            el = el.split('//link//')
+            texts.append(el[0])
+            buttons.append(el[1])
+            links.append(el[2])
+        for n, text in enumerate(texts):
+            await asyncio.sleep(0.2)
+            await message.answer(text=text, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(text=buttons[n], url=links[n].strip())))
+        keyboard = find_keyboard(data['id'])
+        keyboard = find_keyboard(data['id'])
+        if isinstance(keyboard, ReplyKeyboardRemove):
+            await message.answer(text='Вы можете использовать кнопки для перехода на внешний ресурс', reply_markup=keyboard)
+            await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+            await asyncio.sleep(1)
+            return await message.answer(text='Вы получили ответы на все вопросы', reply_markup=InlineKeyboardMarkup(row_width=1).add(inline_back_button).add(inline_cat_button))
+        elif isinstance(keyboard, ReplyKeyboardMarkup):
+            await message.answer(text='Вы можете использовать кнопки для перехода на внешний ресурс', reply_markup=keyboard.add(reply_back_button))
+        elif isinstance(keyboard, InlineKeyboardMarkup):
+            await message.answer(text='Вы можете использовать кнопки для перехода на внешний ресурс', reply_markup=keyboard.add(inline_back_button))
         async with state.proxy() as st:
             st['prev'] = data['id']
         return
