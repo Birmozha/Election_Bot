@@ -412,8 +412,6 @@ async def dailog(message: types.Message, state: FSMContext):
         await message.answer(text=text, reply_markup=keyboard.add(reply_back_button))
     elif isinstance(keyboard, InlineKeyboardMarkup):
         await message.answer(text=text, reply_markup=keyboard.add(inline_back_button))
-    else:
-        print('dsadas')
     async with state.proxy() as st:
         st['prev'] = data['id']
 
