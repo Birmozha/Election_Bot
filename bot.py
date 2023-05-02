@@ -195,7 +195,7 @@ async def send_letter(state: FSMContext):
 async def get_poll(callback: types.CallbackQuery, state: FSMContext):
     question = session.scalar(select(Poll.question).where(Poll.id == 1))
     options = session.scalars(select(PollOptions.option).where(PollOptions.pid == 1)).all()
-    await callback.message.answer(text=question, reply_markup=InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=option, callback_data=option) for option in options]))
+    return await callback.message.answer(text=question, reply_markup=InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=option, callback_data=option) for option in options]))
 
 # ---------------------------------------------------------------------------
 
@@ -223,7 +223,7 @@ async def cmd_admin(message: types.Message, state: FSMContext):
         await message.reply(text='Вы успешно вошли в админ-панель', reply_markup=admin_keyborad)
         
 
-# INFO ----------------------------------------------------------------------
+# BACK ----------------------------------------------------------------------
 
 @dp.callback_query_handler(Text(equals='go-back'), state=['*'])
 async def goBack(callback: types.CallbackQuery, state: FSMContext):
@@ -237,6 +237,11 @@ async def goBack(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query_handler(Text(equals='go-cats'), state=['*'])
 async def goCats(callback: types.CallbackQuery, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state == 'PollStates:poll':
+        async with state.proxy() as st:
+            poll_id = st['poll-id']
+        await bot.delete_message(chat_id=callback.message.chat.id, message_id=poll_id)
     await callback.answer()
     data = find_next(None)
     text = data['text'][-1]
@@ -273,6 +278,10 @@ async def goBackReply(message: types.Message, state: FSMContext):
     await message.answer(text='Вернул назад', reply_markup=keyboard.add(reply_back_button))
     async with state.proxy() as st:
         st['prev'] = data['previous']
+        
+# ---------------------------------------------------------------------------
+
+# INFO ----------------------------------------------------------------------
 
 @dp.callback_query_handler(Text(startswith='candidate'), state=InfoStates.dialog)
 async def callback_candidates(callback: types.CallbackQuery, state: FSMContext):
@@ -351,10 +360,10 @@ async def dailog(message: types.Message, state: FSMContext):
             await message.answer(text=text, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(text=buttons[n], url=links[n].strip())))
         keyboard = find_keyboard(data['id'])
         keyboard = find_keyboard(data['id'])
+        await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+        await asyncio.sleep(0.5)
         if isinstance(keyboard, ReplyKeyboardRemove):
-            await message.answer(text='Вы можете использовать кнопки для перехода на внешний ресурс', reply_markup=keyboard)
-            await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
-            await asyncio.sleep(1)
+            await message.answer(text='Вы можете использовать кнопки для перехода на внешний ресурс', reply_markup=keyboard)  
             return await message.answer(text='Вы получили ответы на все вопросы', reply_markup=InlineKeyboardMarkup(row_width=1).add(inline_back_button).add(inline_cat_button))
         elif isinstance(keyboard, ReplyKeyboardMarkup):
             await message.answer(text='Вы можете использовать кнопки для перехода на внешний ресурс', reply_markup=keyboard.add(reply_back_button))
@@ -690,7 +699,10 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
             try:
                 await PollStates.poll.set()
                 await bot.delete_message(chat_id=callback.message.chat.id, message_id=callback.message.message_id)
-                return await get_poll(callback, state)
+                poll = await get_poll(callback, state)
+                async with state.proxy() as st:
+                    st['poll-id'] = poll['message_id']
+                return await callback.message.answer(text='Если также можете вернуться назад', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
             except Exception:
                 return await callback.message.edit_text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
     elif int(callback.data) == 17:
