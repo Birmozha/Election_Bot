@@ -1,4 +1,4 @@
-from collections import namedtuple
+import logging
 import os
 import asyncio
 from dotenv import load_dotenv
@@ -563,6 +563,7 @@ async def choose_category(message: types.Message, state: FSMContext):
     await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
     temp = await text_to_id(message, state)
     data = find_next(temp)
+    await set_states(data, state)
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
             await message.answer(text=text)
@@ -588,7 +589,6 @@ async def choose_category(message: types.Message, state: FSMContext):
             text = data['text'][0]
         keyboard = find_keyboard(data['id'])
     await message.answer(text=text, reply_markup=keyboard)
-    await set_states(data, state)
     async with state.proxy() as st:
         st['complain']['title'] = message.text
         st['prev'] = data['id']
@@ -731,8 +731,6 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
 
 
 if __name__ == '__main__':
-    try:
-        session.execute(text("PRAGMA foreign_keys=ON"))
-        executor.start_polling(dp, skip_updates=True)
-    except Exception as exception:
-        print(exception)
+    logging.basicConfig(level=logging.ERROR, filename="py_log.log",filemode="w")
+    session.execute(text("PRAGMA foreign_keys=ON"))
+    executor.start_polling(dp, skip_updates=True)
