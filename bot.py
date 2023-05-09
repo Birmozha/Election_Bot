@@ -3,8 +3,9 @@ import os
 import asyncio
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, executor, types
-from aiogram.types import ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, MediaGroup
 from aiogram.types.input_file import InputFile
+
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -353,10 +354,15 @@ async def dailog(message: types.Message, state: FSMContext):
             break
     data = find_next(temp)
     if message.text not in session.scalars(select(Data.text)).all():
-        photo = InputFile('database/bot_photos/ikb_buttons.jpg')
-        await bot.send_photo(chat_id=message.from_user.id, caption='Пожалуйста, используйте инлайн-кнопки', photo=photo)
-        photo = InputFile('database/bot_photos/kb_buttons.jpg')
-        return await bot.send_photo(chat_id=message.from_user.id, caption='Или используйте кнопки', photo=photo)
+        media = MediaGroup()
+        media.attach_photo(InputFile('database/bot_photos/ikb_buttons.jpg'), 'Инлайн кнопки')
+        media.attach_photo(InputFile('database/bot_photos/kb_buttons.jpg'), 'Обычные кнопки')
+        # photo = InputFile('database/bot_photos/ikb_buttons.jpg')
+        # await bot.send_photo(chat_id=message.from_user.id, caption='Пожалуйста, используйте инлайн-кнопки', photo=photo)
+        # photo = InputFile('database/bot_photos/kb_buttons.jpg')
+        # return await bot.send_photo(chat_id=message.from_user.id, caption='Или используйте кнопки', photo=photo)
+        await bot.send_media_group(chat_id=message.from_user.id, media=media)
+        return await message.answer(text='Пожалуйста, следуйте инстуркции')
     if '<candidates>' in data['properties'] :
         async with state.proxy() as st:
             message = await message.answer(text=data['candidates'][0], reply_markup=InlineKeyboardMarkup(row_width=3)
