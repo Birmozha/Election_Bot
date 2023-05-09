@@ -36,6 +36,11 @@ class PollOptions(Base):
     option: Mapped[str] = mapped_column()
     count: Mapped[int] = mapped_column(default=0)
     parent = relationship('Poll', back_populates='children')
+
+class Admins(Base):
+    __tablename__ = "admins"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    telegram_id: Mapped[int] = mapped_column()
     
 engine = create_engine("sqlite:///database/data.db")
 

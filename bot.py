@@ -10,7 +10,7 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher.filters import Text
 
-from sqlalchemy import select, update
+from sqlalchemy import select, update, delete, insert
 from sqlalchemy.sql import text
 
 import smtplib
@@ -20,7 +20,7 @@ from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from email.mime.base import MIMEBase
 
-from database.database import Tree, Data, Images, Poll, PollOptions, session
+from database.database import Tree, Data, Images, Poll, PollOptions, Admins, session
 
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
 if os.path.exists(dotenv_path):
@@ -69,6 +69,7 @@ class AdminStates(StatesGroup):
     admin = State()
     wait_question = State()
     wait_answer = State()
+    wait_id = State()
     
 class PollStates(StartStates):
     poll = State()
@@ -81,8 +82,9 @@ admin_keyborad = InlineKeyboardMarkup(row_width=1
                                       ).add(InlineKeyboardButton(text='Текущий опрос', callback_data='get-current')
                                             ).add(InlineKeyboardButton(text='Посмотреть результаты опроса', callback_data='get-results')
                                                      ).add(InlineKeyboardButton(text='Завершить текущий опрос', callback_data='finish-current')
-                                                           ).add(InlineKeyboardButton(text='Создать новый опрос', callback_data='new-poll'))
-
+                                                           ).add(InlineKeyboardButton(text='Создать новый опрос', callback_data='new-poll')
+                                                                 ).add(InlineKeyboardButton(text='Список администраторов', callback_data='admins')
+                                                                       ).add(InlineKeyboardButton(text='Добавить администратора', callback_data='insert'))
 def find_next(id) -> dict:
     previous = id
     id = session.scalar(select(Tree.qid).where(Tree.pid == id))
@@ -108,12 +110,7 @@ def find_keyboard(id) -> ReplyKeyboardMarkup | InlineKeyboardMarkup | ReplyKeybo
         Tree.pid == id).where(Tree.properties.like('<button%'))).fetchall()
     buttons = []
     for button_id in button_ids:
-        buttons.append(
-            (
-                session.scalar(select(Data.text).where(Data.id == button_id)),
-                button_id
-            )
-        )
+        buttons.append((session.scalar(select(Data.text).where(Data.id == button_id)),button_id))
     if not buttons:
         keyboard = ReplyKeyboardRemove()
         return keyboard
@@ -195,13 +192,43 @@ async def send_letter(state: FSMContext):
 async def get_poll(callback: types.CallbackQuery, state: FSMContext):
     question = session.scalar(select(Poll.question).where(Poll.id == 1))
     options = session.scalars(select(PollOptions.option).where(PollOptions.pid == 1)).all()
-    return await callback.message.answer(text=question, reply_markup=InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=option, callback_data=option) for option in options]))
+    current_state = await state.get_state()
+    if current_state == 'AdminStates:admin':
+        return await callback.message.answer(text=question, reply_markup=InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=option, callback_data=option) for option in options]))
+    else:
+        return await callback.message.answer(text=question, reply_markup=InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=option, callback_data=option) for option in options]).add(inline_cat_button))
 
 # ---------------------------------------------------------------------------
+
+@dp.message_handler(commands=['start'], state=StartStates.start)
+async def cmd_start(message: types.Message, state: FSMContext):
+    await StartStates.start.set()
+    data = find_next(None)
+    if len(data['text']) > 1:
+        for text in data['text'][:-1]:
+            await message.answer(text=text)
+            await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+            await asyncio.sleep(0.2)
+        text = data['text'][-1]
+    else:
+        text = data['text'][0]
+    keyboard = find_keyboard(data['id'])
+    await message.answer(text=text, reply_markup=keyboard)
+
+@dp.message_handler(commands=['admin'], state=['*'])
+async def cmd_admin(message: types.Message, state: FSMContext):
+    admins = session.scalars(select(Admins.telegram_id)).all()
+    if message.from_user.id not in admins:
+        await message.reply(text='Вы не являетесь администратором')
+    else:
+        await AdminStates.admin.set()
+        await message.reply(text='Вы успешно вошли в админ-панель', reply_markup=admin_keyborad)
 
 @dp.message_handler(commands=['start'], state=['*'])
 async def cmd_start(message: types.Message, state: FSMContext):
     await StartStates.start.set()
+    async with state.proxy() as st:
+            st['candidates'] = {}
     data = find_next(None)
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
@@ -325,6 +352,11 @@ async def dailog(message: types.Message, state: FSMContext):
         if temp:
             break
     data = find_next(temp)
+    if message.text not in session.scalars(select(Data.text)).all():
+        photo = InputFile('database/bot_photos/ikb_buttons.jpg')
+        await bot.send_photo(chat_id=message.from_user.id, caption='Пожалуйста, используйте инлайн-кнопки', photo=photo)
+        photo = InputFile('database/bot_photos/kb_buttons.jpg')
+        return await bot.send_photo(chat_id=message.from_user.id, caption='Или используйте кнопки', photo=photo)
     if '<candidates>' in data['properties'] :
         async with state.proxy() as st:
             message = await message.answer(text=data['candidates'][0], reply_markup=InlineKeyboardMarkup(row_width=3)
@@ -614,6 +646,28 @@ async def collect_poll_answer(callback: types.CallbackQuery, state: FSMContext):
 
 # ADMIN ---------------------------------------------------------------------
 
+@dp.callback_query_handler(Text(startswith='delete'), state=AdminStates.admin)
+async def delete_admin(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    id = callback.data.split('-')[1]
+    session.execute(delete(Admins).where(Admins.telegram_id == id))
+    session.commit()
+    await callback.message.delete()
+
+@dp.message_handler(state=AdminStates.wait_id)
+async def wait_admin(message: types.Message, state: FSMContext):
+    id = int(message.text.strip())
+    session.execute(insert(Admins).values(telegram_id = id))
+    session.commit()
+    await message.reply(text='Администратор добавлен', reply_markup=admin_keyborad)
+    await AdminStates.admin.set()
+
+@dp.callback_query_handler(Text(startswith='insert'), state=AdminStates.admin)
+async def insert_admin(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.answer(text='Введите ID пользователя в Telegram')
+    await AdminStates.wait_id.set()
+
 @dp.callback_query_handler(state=AdminStates.admin)
 async def admin_handler(callback: types.CallbackQuery, state: FSMContext):
     if callback.data == 'get-current':
@@ -648,6 +702,11 @@ async def admin_handler(callback: types.CallbackQuery, state: FSMContext):
         session.commit()
         await callback.message.answer(text='Введите вопрос')
         await AdminStates.wait_question.set()
+    elif callback.data == 'admins':
+        await callback.answer()
+        admins = session.scalars(select(Admins.telegram_id)).all()
+        for id in admins:
+            await callback.message.answer(text=f'<a href="tg://user?id={id}">{id}</a>', reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(text='Удалить', callback_data=f'delete-{id}')))
     else:
         await callback.answer('Вы находитесь в админ-панели. Используйте команду /start')
         
@@ -684,9 +743,9 @@ async def create_poll(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query_handler(state=StartStates.start)
 async def define_category(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
+    if 'candidate' in callback.data:
+        return await callback_candidates(callback, state)
     if int(callback.data) == 2:
-        async with state.proxy() as st:
-            st['candidates'] = {}
         await InfoStates.dialog.set()
     elif int(callback.data) == 186:
         try:
@@ -702,7 +761,7 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
                 poll = await get_poll(callback, state)
                 async with state.proxy() as st:
                     st['poll-id'] = poll['message_id']
-                return await callback.message.answer(text='Если также можете вернуться назад', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+                return
             except Exception:
                 return await callback.message.edit_text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
     elif int(callback.data) == 17:

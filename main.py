@@ -17,8 +17,7 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-users = {'a1': {'password': 'pass1'},
-         'a2': {'password': 'pass2'}}
+users = {'a1': {'password': 'pass1'}}
 
 class User(UserMixin):
     pass
