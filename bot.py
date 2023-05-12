@@ -65,6 +65,8 @@ class ComplainStates(StatesGroup):
     wait_text = State()
     wait_photo = State()
     additionals = State()
+    wait_confirmation = State()
+    change_text = State()
     
 class AdminStates(StatesGroup):
     admin = State()
@@ -144,7 +146,42 @@ async def text_to_id(message: types.Message, state: FSMContext):
         temp = session.scalar(select(Data.id).where(Data.text == message.text).where(Data.id == id))
         if temp:
             return temp
-        
+
+async def check_complain(state: FSMContext):
+    await ComplainStates.wait_confirmation.set()
+    keyboard = InlineKeyboardMarkup(
+        ).add(InlineKeyboardButton(text='Отправить жалобу', callback_data='submit')
+                                          ).add(InlineKeyboardButton(text='Изменить жалобу', callback_data='change-text'))
+    media_keyboard = InlineKeyboardMarkup(
+        ).add(InlineKeyboardButton(text='Отправить жалобу', callback_data='submit')
+                                          ).add(InlineKeyboardButton(text='Изменить жалобу', callback_data='change-text')
+                                                ).add(InlineKeyboardButton(text='Изменить фото (или видео)', callback_data='change-media'))
+    async with state.proxy() as st:
+        user_id = st['user_id']
+        category = st['complain']['title']
+        try:
+            photo_path = st['complain']['photo_path']
+            photo_name = st['complain']['photo_name']
+        except KeyError:
+            photo_path = None
+        try:
+            video_path = st['complain']['video_path']
+            video_name = st['complain']['video_name']
+        except KeyError:
+            video_path = None
+        text = st['complain']['text']
+    complain = f'<b>Категория:</b> {category}\n\n<b>Жалоба:</b>\n'
+    for el in text:
+        complain += el
+    if photo_path:
+        photo = InputFile(photo_path)
+        await bot.send_photo(chat_id=user_id, photo=photo, caption=complain, reply_markup=media_keyboard)
+    elif video_path:
+        video = InputFile(video_path)
+        await bot.send_video(chat_id=user_id, video=video, caption=complain, reply_markup=media_keyboard)
+    else:
+        await bot.send_message(chat_id=user_id, text=complain, reply_markup=keyboard)
+
 async def send_letter(state: FSMContext):
     async with state.proxy() as st:
         category = st['complain']['title']
@@ -229,7 +266,8 @@ async def cmd_admin(message: types.Message, state: FSMContext):
 async def cmd_start(message: types.Message, state: FSMContext):
     await StartStates.start.set()
     async with state.proxy() as st:
-            st['candidates'] = {}
+        st['user_id'] = message.from_user.id
+        st['candidates'] = {}
     data = find_next(None)
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
@@ -542,6 +580,8 @@ async def wait_text(message: types.Message, state: FSMContext):
         prev = st['prev']
     data = find_next(prev)
     if not data:
+        await check_complain(state)
+        return
         await send_letter(state)
         await StartStates.start.set()
         return await message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
@@ -564,16 +604,57 @@ async def wait_text(message: types.Message, state: FSMContext):
     async with state.proxy() as st:
         st['prev'] = data['id']
 
+@dp.callback_query_handler(Text(equals='submit'), state=ComplainStates.wait_confirmation)
+async def submit_complain(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await send_letter(state)
+    await StartStates.start.set()
+    await callback.message.edit_text(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
 
+@dp.callback_query_handler(Text(equals='change-text'), state=ComplainStates.wait_confirmation)
+async def change_complain_text(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    async with state.proxy() as st:
+        st['old_complain'] = st['complain']['text']
+        text = st['old_complain'].pop(0).split(':')[0][2:]
+        st['complain']['text'] = []
+    await ComplainStates.change_text.set()
+    await callback.message.delete()
+    await callback.message.answer(f'Укажите {text.lower()}')
+    async with state.proxy() as st:
+        st['prefix'] = text
+        
+@dp.callback_query_handler(Text(equals='change-media'), state=ComplainStates.wait_confirmation)
+async def change_complain_media(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await ComplainStates.wait_photo.set()
+    await callback.message.answer('Пришлите новую фотографию (или видео)')
+        
+    
+@dp.message_handler(state=ComplainStates.change_text)
+async def rewrite_complain(message: types.Message, state: FSMContext):
+    if message.photo or message.video:
+        return await message.reply('Пришлите, пожалуйста, текст')
+    async with state.proxy() as st:
+        st['complain']['text'].append(f"\r\n{st['prefix']}: {message.text}")
+        try:
+            text = st['old_complain'].pop(0).split(':')[0][2:]
+        except:
+            text = None
+    if not text:
+        return await check_complain(state)
+    await message.answer(f'Укажите {text.lower()}')
+    async with state.proxy() as st:
+        st['prefix'] = text
+    
 @dp.message_handler(state=ComplainStates.additionals)
 async def wait_category(message: types.Message, state: FSMContext):
     await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
     temp = await text_to_id(message, state)
     data = find_next(temp)
     if not data:
-        await send_letter(state)
-        await StartStates.start.set()
-        return await message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+        await check_complain(state)
+        return
     await set_states(data, state)
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
@@ -585,6 +666,8 @@ async def wait_category(message: types.Message, state: FSMContext):
         text = data['text'][0]
     keyboard = find_keyboard(data['id'])
     if '<additionals>' in data['properties'] and isinstance(keyboard, ReplyKeyboardRemove):
+        await check_complain(state)
+        return
         await send_letter(state)
         await StartStates.start.set()
         await message.answer(text=text, reply_markup=keyboard)
