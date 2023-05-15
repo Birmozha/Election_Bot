@@ -100,7 +100,7 @@ def info_tree():
                             SELECT tree.qid, cte.level+1
                             FROM tree JOIN cte ON tree.pid = cte.qid
                             ORDER BY 2 DESC)
-                            SELECT level, qid FROM cte""", (cats[0][0], )).fetchall()
+                            SELECT level, qid FROM cte""", (cats[1][0], )).fetchall()
         
         level_id = [el for el in level_id]
         tree = []
@@ -234,7 +234,7 @@ def addLeaf():
                             SELECT tree.qid, cte.level+1
                             FROM tree JOIN cte ON tree.pid = cte.qid
                             ORDER BY 2 DESC)
-                            SELECT level, qid FROM cte""", (cats[0][0], )).fetchall()
+                            SELECT level, qid FROM cte""", (cats[1][0], )).fetchall()
         
         level_id = [el for el in level_id]
         tree = []
@@ -299,7 +299,7 @@ def addComplainLeaf():
                             SELECT tree.qid, cte.level+1
                             FROM tree JOIN cte ON tree.pid = cte.qid
                             ORDER BY 2 DESC)
-                            SELECT level, qid FROM cte""", (cats[1][0], )).fetchall()
+                            SELECT level, qid FROM cte""", (cats[0][0], )).fetchall()
         
         level_id = [el for el in level_id]
         tree = []
@@ -422,7 +422,7 @@ def complain_tree():
                             SELECT tree.qid, cte.level+1
                             FROM tree JOIN cte ON tree.pid = cte.qid
                             ORDER BY 2 DESC)
-                            SELECT level, qid FROM cte""", (cats[1][0], )).fetchall()
+                            SELECT level, qid FROM cte""", (cats[0][0], )).fetchall()
         
         level_id = [el for el in level_id]
         tree = []

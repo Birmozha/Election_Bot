@@ -36,13 +36,15 @@ TO_MAIL_BOX = os.environ.get('TO_MAIL_BOX')
 ADMIN_IDS = [387605921]
 
 COMPLAIN_COLLECTED_TEXT = 'Благодарим Вас за Вашу гражданскую активность, Ваше обращение будет рассмотрено экспертами Общественного штаба по контролю и наблюдению за выборами Челябинской области'
+NO_COMPLAIN_TEXT = 'Кажется, Вы не столкнулись с никаким нарушением. Вы можете вернуться назад'
+FINAL_TEXT = 'Остались вопросы?\n\nВы можете позвонить на горячую линию Общественного штаба по контролю и наблюдению за выборами и проконсультироваться со специалистом: 8(351)737-16-57'
 
-cat_button_text = '<< К категориям'
+cat_button_text = '🔄 К категориям'
 inline_cat_button = InlineKeyboardButton(text=cat_button_text, callback_data='go-cats')
 reply_cat_button = KeyboardButton(text=cat_button_text)
 
 
-back_button_text = '<< Назад'
+back_button_text = '⤴️ Назад'
 inline_back_button = InlineKeyboardButton(text=back_button_text, callback_data='go-back')
 reply_back_button = KeyboardButton(text=back_button_text)
 
@@ -67,6 +69,7 @@ class ComplainStates(StatesGroup):
     additionals = State()
     wait_confirmation = State()
     change_text = State()
+    change_photo = State()
     
 class AdminStates(StatesGroup):
     admin = State()
@@ -132,6 +135,7 @@ async def set_states(data, state: FSMContext):
         return await ComplainStates.choose_category.set()
     elif '<waittext>' in data['properties']:
         async with state.proxy() as st:
+            # st['temp_complain'].append(data['text'])
             st['prefix'] = data['text'][-1]
             data['text'] = data['text'][:-1]
         return await ComplainStates.wait_text.set()
@@ -151,11 +155,13 @@ async def check_complain(state: FSMContext):
     await ComplainStates.wait_confirmation.set()
     keyboard = InlineKeyboardMarkup(
         ).add(InlineKeyboardButton(text='Отправить жалобу', callback_data='submit')
-                                          ).add(InlineKeyboardButton(text='Изменить жалобу', callback_data='change-text'))
+                                          ).add(InlineKeyboardButton(text='Изменить жалобу', callback_data='change-text')
+                                                ).add(InlineKeyboardButton(text='Добавить фото (или видео)', callback_data='change-media'))
     media_keyboard = InlineKeyboardMarkup(
         ).add(InlineKeyboardButton(text='Отправить жалобу', callback_data='submit')
                                           ).add(InlineKeyboardButton(text='Изменить жалобу', callback_data='change-text')
-                                                ).add(InlineKeyboardButton(text='Изменить фото (или видео)', callback_data='change-media'))
+                                                ).add(InlineKeyboardButton(text='Изменить фото (или видео)', callback_data='change-media')
+                                                      ).add(InlineKeyboardButton(text='Отменить отправку жалобы', callback_data='go-cats'))
     async with state.proxy() as st:
         user_id = st['user_id']
         category = st['complain']['title']
@@ -170,7 +176,9 @@ async def check_complain(state: FSMContext):
         except KeyError:
             video_path = None
         text = st['complain']['text']
-    complain = f'<b>Категория:</b> {category}\n\n<b>Жалоба:</b>\n'
+    if not text:
+        return await bot.send_message(chat_id=user_id, text=NO_COMPLAIN_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+    complain = f'<b>Категория:</b> {category}\n\n<b>Жалоба:</b>'
     for el in text:
         complain += el
     if photo_path:
@@ -244,7 +252,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     data = find_next(None)
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
-            await message.answer(text=text)
+            await message.answer(text=text, reply_markup=ReplyKeyboardRemove())
             await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
             await asyncio.sleep(0.2)
         text = data['text'][-1]
@@ -271,7 +279,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     data = find_next(None)
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
-            await message.answer(text=text)
+            await message.answer(text=text, reply_markup=ReplyKeyboardRemove())
             await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
             await asyncio.sleep(0.2)
         text = data['text'][-1]
@@ -338,7 +346,7 @@ async def goBackReply(message: types.Message, state: FSMContext):
     try:
         keyboard = find_keyboard(id)
     except:
-        return await message.answer(text='Вы получили ответы на все вопросы', reply_markup=InlineKeyboardMarkup(row_width=1).add(inline_cat_button))
+        return await message.answer(text='Вы можете вернуться к категориям', reply_markup=InlineKeyboardMarkup(row_width=1).add(inline_cat_button))
     if isinstance(keyboard, InlineKeyboardMarkup):
         return await message.answer(text='Вернул назад', reply_markup=keyboard.add(inline_cat_button))
     await message.answer(text='Вернул назад', reply_markup=keyboard.add(reply_back_button))
@@ -356,9 +364,9 @@ async def callback_candidates(callback: types.CallbackQuery, state: FSMContext):
         id = int((callback.data.split('-'))[1])
         async with state.proxy() as st:
             await callback.message.edit_text(text=st['candidates'][callback.message['message_id']][id], reply_markup=InlineKeyboardMarkup(row_width=3)
-                                    .insert(InlineKeyboardButton(text='<<', callback_data=f'candidate-{id-1}'))
+                                    .insert(InlineKeyboardButton(text='⬅️', callback_data=f'candidate-{id-1}'))
                                     .insert(InlineKeyboardButton(text=f" {id+1} / {len(st['candidates'][callback.message['message_id']])}", callback_data='candidate'))
-                                    .insert(InlineKeyboardButton(text='>>', callback_data=f'candidate-{id+1}')))
+                                    .insert(InlineKeyboardButton(text='➡️', callback_data=f'candidate-{id+1}')))
     except Exception:
         pass
 
@@ -400,25 +408,25 @@ async def dailog(message: types.Message, state: FSMContext):
         # photo = InputFile('database/bot_photos/kb_buttons.jpg')
         # return await bot.send_photo(chat_id=message.from_user.id, caption='Или используйте кнопки', photo=photo)
         await bot.send_media_group(chat_id=message.from_user.id, media=media)
-        return await message.answer(text='Пожалуйста, следуйте инстуркции')
+        return await message.answer(text='Пожалуйста, следуйте инструкции')
     if '<candidates>' in data['properties'] :
         async with state.proxy() as st:
             message = await message.answer(text=data['candidates'][0], reply_markup=InlineKeyboardMarkup(row_width=3)
-                                           .insert(InlineKeyboardButton(text='<<', callback_data='candidate-0'))
+                                           .insert(InlineKeyboardButton(text='⬅️', callback_data='candidate-0'))
                                            .insert(InlineKeyboardButton(text=f" 1 / {len(data['candidates'])}", callback_data='candidate'))
-                                           .insert(InlineKeyboardButton(text='>>', callback_data='candidate-1')))
+                                           .insert(InlineKeyboardButton(text='➡️', callback_data='candidate-1')))
             st['candidates'][message["message_id"]] = data['candidates']
             
         keyboard = find_keyboard(data['id'])
         if isinstance(keyboard, ReplyKeyboardRemove):
-            await message.answer(text='Используйте инлайн-кнопки для навигации', reply_markup=keyboard)
+            await message.answer(text='Используйте кнопки ⬅️ и ➡️ для навигации', reply_markup=keyboard)
             await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
             await asyncio.sleep(1)
-            return await message.answer(text='Вы получили ответы на все вопросы', reply_markup=InlineKeyboardMarkup(row_width=1).add(inline_back_button).add(inline_cat_button))
+            return await message.answer(text='Вы можете вернуться назад', reply_markup=InlineKeyboardMarkup(row_width=1).add(inline_back_button).add(inline_cat_button))
         elif isinstance(keyboard, ReplyKeyboardMarkup):
-            await message.answer(text='Используйте инлайн-кнопки для навигации', reply_markup=keyboard.add(reply_back_button))
+            await message.answer(text='Используйте кнопки ⬅️ и ➡️ для навигации', reply_markup=keyboard.add(reply_back_button))
         elif isinstance(keyboard, InlineKeyboardMarkup):
-            await message.answer(text='Используйте инлайн-кнопки для навигации', reply_markup=keyboard.add(inline_back_button))
+            await message.answer(text='Используйте кнопки, прикрепленные к сообщению, для навигации', reply_markup=keyboard.add(inline_back_button))
         async with state.proxy() as st:
             st['prev'] = data['id']
         return
@@ -429,8 +437,22 @@ async def dailog(message: types.Message, state: FSMContext):
         for el in data['text']:
             el = el.split('//link//')
             texts.append(el[0])
-            buttons.append(el[1])
-            links.append(el[2])
+            try:
+                buttons.append(el[1])
+                links.append(el[2])
+            except IndexError:
+                keyboard = find_keyboard(data['id'])
+                for text in texts:
+                    if isinstance(keyboard, ReplyKeyboardRemove):
+                        await message.answer(text=text, reply_markup=keyboard)  
+                        return await message.answer(text='Вы можете вернуться назад', reply_markup=InlineKeyboardMarkup(row_width=1).add(inline_back_button).add(inline_cat_button))
+                    elif isinstance(keyboard, ReplyKeyboardMarkup):
+                        await message.answer(text=text, reply_markup=keyboard.add(reply_back_button))
+                    elif isinstance(keyboard, InlineKeyboardMarkup):
+                        await message.answer(text=text, reply_markup=keyboard.add(inline_back_button))
+                async with state.proxy() as st:
+                    st['prev'] = data['id']
+                return 
         for n, text in enumerate(texts):
             await asyncio.sleep(0.2)
             await message.answer(text=text, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(text=buttons[n], url=links[n].strip())))
@@ -440,7 +462,7 @@ async def dailog(message: types.Message, state: FSMContext):
         await asyncio.sleep(0.5)
         if isinstance(keyboard, ReplyKeyboardRemove):
             await message.answer(text='Вы можете использовать кнопки для перехода на внешний ресурс', reply_markup=keyboard)  
-            return await message.answer(text='Вы получили ответы на все вопросы', reply_markup=InlineKeyboardMarkup(row_width=1).add(inline_back_button).add(inline_cat_button))
+            return await message.answer(text='Вы можете вернуться назад', reply_markup=InlineKeyboardMarkup(row_width=1).add(inline_back_button).add(inline_cat_button))
         elif isinstance(keyboard, ReplyKeyboardMarkup):
             await message.answer(text='Вы можете использовать кнопки для перехода на внешний ресурс', reply_markup=keyboard.add(reply_back_button))
         elif isinstance(keyboard, InlineKeyboardMarkup):
@@ -483,7 +505,7 @@ async def dailog(message: types.Message, state: FSMContext):
         await message.answer(text=text, reply_markup=keyboard)
         await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
         await asyncio.sleep(1)
-        return await message.answer(text='Вы получили ответы на все вопросы', reply_markup=InlineKeyboardMarkup(row_width=1).add(inline_back_button).add(inline_cat_button))
+        return await message.answer(text='Вы можете вернуться назад', reply_markup=InlineKeyboardMarkup(row_width=1).add(inline_back_button).add(inline_cat_button))
     elif isinstance(keyboard, ReplyKeyboardMarkup):
         await message.answer(text=text, reply_markup=keyboard.add(reply_back_button))
     elif isinstance(keyboard, InlineKeyboardMarkup):
@@ -507,7 +529,8 @@ async def skip_photo(callback: types.CallbackQuery, state: FSMContext):
     if not data:
         await send_letter(state)
         await StartStates.start.set()
-        return await callback.message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+        await callback.message.answer(text=COMPLAIN_COLLECTED_TEXT)
+        return await callback.message.answer(text=FINAL_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
     await set_states(data, state)
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
@@ -546,7 +569,8 @@ async def wait_text(message: types.Message, state: FSMContext):
         if not data:
             await send_letter(state)
             await StartStates.start.set()
-            return await message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+            await message.answer(text=COMPLAIN_COLLECTED_TEXT)
+            return await message.answer(text=FINAL_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
         await set_states(data, state)
         if len(data['text']) > 1:
             for text in data['text'][:-1]:
@@ -584,7 +608,8 @@ async def wait_text(message: types.Message, state: FSMContext):
         return
         await send_letter(state)
         await StartStates.start.set()
-        return await message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+        await message.answer(text=COMPLAIN_COLLECTED_TEXT)
+        return await message.answer(text=FINAL_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
     await set_states(data, state)
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
@@ -600,6 +625,8 @@ async def wait_text(message: types.Message, state: FSMContext):
     elif '<waitphoto>' in data['properties']:
         await message.answer(text=text, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(text='Пропустить добавление фото', callback_data='skip-photo')))
     else:
+        async with state.proxy() as st:
+            st['temp_complain'].append((text, st['prefix']))
         await message.answer(text=text, reply_markup=ReplyKeyboardRemove())
     async with state.proxy() as st:
         st['prev'] = data['id']
@@ -609,49 +636,82 @@ async def submit_complain(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     await send_letter(state)
     await StartStates.start.set()
-    await callback.message.edit_text(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+    await callback.message.delete()
+    await callback.message.answer(text=COMPLAIN_COLLECTED_TEXT)
+    return await callback.message.answer(text=FINAL_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
 
 @dp.callback_query_handler(Text(equals='change-text'), state=ComplainStates.wait_confirmation)
 async def change_complain_text(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     async with state.proxy() as st:
-        st['old_complain'] = st['complain']['text']
-        text = st['old_complain'].pop(0).split(':')[0][2:]
+        # st['temp_complain'] = st['complain']['text']
+        text = st['temp_complain'].pop(0)
         st['complain']['text'] = []
     await ComplainStates.change_text.set()
     await callback.message.delete()
-    await callback.message.answer(f'Укажите {text.lower()}')
+    await callback.message.answer(text=text[0])
     async with state.proxy() as st:
-        st['prefix'] = text
+        st['prefix'] = text[1]
         
 @dp.callback_query_handler(Text(equals='change-media'), state=ComplainStates.wait_confirmation)
 async def change_complain_media(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
-    await ComplainStates.wait_photo.set()
-    await callback.message.answer('Пришлите новую фотографию (или видео)')
-        
+    await ComplainStates.change_photo.set()
+    await callback.message.answer('Пришлите фотографию (или видео)')
+
+@dp.message_handler(content_types=['any'], state=ComplainStates.change_photo)
+async def change_photo(message: types.Message, state: FSMContext):
+    await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
+    async with state.proxy() as st:
+            category = st['complain']['title'].lower().strip().replace(' ', '_')
+    if message.photo or message.video:
+        if message.photo:
+            await message.photo[-1].download(destination_file=f'database\complain_photos/{category}_{message.message_id}.jpg')
+            async with state.proxy() as st:
+                st['complain']['photo_path'] = f'database\complain_photos/{category}_{message.message_id}.jpg'
+                st['complain']['photo_name'] = f'{category}_{message.message_id}.jpg'
+        elif message.video:
+            await message.video.download(destination_file=f'database\complain_videos/{category}_{message.message_id}.mp4')
+            async with state.proxy() as st:
+                st['complain']['video_path'] = f'database\complain_videos/{category}_{message.message_id}.mp4'
+                st['complain']['video_name'] = f'{category}_{message.message_id}.mp4'
+        await check_complain(state)
+    else:
+        await ComplainStates.change_photo.set()
+        await message.reply(text='Пришлите, пожалуйста, фотографию', reply_markup=InlineKeyboardMarkup()
+                            .add(InlineKeyboardButton(text='Пропустить добавление фото', callback_data='skip-photo')))
     
 @dp.message_handler(state=ComplainStates.change_text)
 async def rewrite_complain(message: types.Message, state: FSMContext):
     if message.photo or message.video:
         return await message.reply('Пришлите, пожалуйста, текст')
     async with state.proxy() as st:
-        st['complain']['text'].append(f"\r\n{st['prefix']}: {message.text}")
+        st['complain']['text'].append(f"{st['prefix']}: {message.text}")
         try:
-            text = st['old_complain'].pop(0).split(':')[0][2:]
+            text = st['temp_complain'].pop(0)
         except:
             text = None
     if not text:
         return await check_complain(state)
-    await message.answer(f'Укажите {text.lower()}')
+    await message.answer(text=text[0])
     async with state.proxy() as st:
-        st['prefix'] = text
+        st['prefix'] = text[1]
     
 @dp.message_handler(state=ComplainStates.additionals)
 async def wait_category(message: types.Message, state: FSMContext):
     await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
     temp = await text_to_id(message, state)
     data = find_next(temp)
+    if message.text not in session.scalars(select(Data.text)).all():
+        media = MediaGroup()
+        media.attach_photo(InputFile('database/bot_photos/ikb_buttons.jpg'), 'Инлайн кнопки')
+        media.attach_photo(InputFile('database/bot_photos/kb_buttons.jpg'), 'Обычные кнопки')
+        # photo = InputFile('database/bot_photos/ikb_buttons.jpg')
+        # await bot.send_photo(chat_id=message.from_user.id, caption='Пожалуйста, используйте инлайн-кнопки', photo=photo)
+        # photo = InputFile('database/bot_photos/kb_buttons.jpg')
+        # return await bot.send_photo(chat_id=message.from_user.id, caption='Или используйте кнопки', photo=photo)
+        await bot.send_media_group(chat_id=message.from_user.id, media=media)
+        return await message.answer(text='Пожалуйста, следуйте инструкции')
     if not data:
         await check_complain(state)
         return
@@ -671,10 +731,14 @@ async def wait_category(message: types.Message, state: FSMContext):
         await send_letter(state)
         await StartStates.start.set()
         await message.answer(text=text, reply_markup=keyboard)
-        await message.answer(text=COMPLAIN_COLLECTED_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+        await message.answer(text=COMPLAIN_COLLECTED_TEXT)
+        return await message.answer(text=FINAL_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+        
     elif '<waitphoto>' in data['properties']:
         await message.answer(text=text, reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(text='Пропустить добавление фото', callback_data='skip-photo')))
     else:
+        async with state.proxy() as st:
+            st['temp_complain'].append((text, st['prefix']))
         await message.answer(text=text, reply_markup=keyboard)
     async with state.proxy() as st:
         st['prev'] = data['id']
@@ -684,6 +748,16 @@ async def choose_category(message: types.Message, state: FSMContext):
     await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
     temp = await text_to_id(message, state)
     data = find_next(temp)
+    if message.text not in session.scalars(select(Data.text)).all():
+        media = MediaGroup()
+        media.attach_photo(InputFile('database/bot_photos/ikb_buttons.jpg'), 'Инлайн кнопки')
+        media.attach_photo(InputFile('database/bot_photos/kb_buttons.jpg'), 'Обычные кнопки')
+        # photo = InputFile('database/bot_photos/ikb_buttons.jpg')
+        # await bot.send_photo(chat_id=message.from_user.id, caption='Пожалуйста, используйте инлайн-кнопки', photo=photo)
+        # photo = InputFile('database/bot_photos/kb_buttons.jpg')
+        # return await bot.send_photo(chat_id=message.from_user.id, caption='Или используйте кнопки', photo=photo)
+        await bot.send_media_group(chat_id=message.from_user.id, media=media)
+        return await message.answer(text='Пожалуйста, следуйте инструкции')
     await set_states(data, state)
     if len(data['text']) > 1:
         for text in data['text'][:-1]:
@@ -709,6 +783,8 @@ async def choose_category(message: types.Message, state: FSMContext):
         else:
             text = data['text'][0]
         keyboard = find_keyboard(data['id'])
+    async with state.proxy() as st:
+        st['temp_complain'].append((text, st['prefix']))
     await message.answer(text=text, reply_markup=keyboard)
     async with state.proxy() as st:
         st['complain']['title'] = message.text
@@ -834,7 +910,7 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     if 'candidate' in callback.data:
         return await callback_candidates(callback, state)
-    if int(callback.data) == 2:
+    if int(callback.data) == 17:
         await InfoStates.dialog.set()
     elif int(callback.data) == 186:
         try:
@@ -853,10 +929,11 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
                 return
             except Exception:
                 return await callback.message.edit_text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
-    elif int(callback.data) == 17:
+    elif int(callback.data) == 2:
         async with state.proxy() as st:
             st['complain'] = {}
             st['complain']['text'] = []
+            st['temp_complain'] = []
         await ComplainStates.choose_category.set()
         
     await bot.send_chat_action(chat_id=callback.message.from_user.id, action='typing')
