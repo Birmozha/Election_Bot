@@ -36,7 +36,7 @@ TO_MAIL_BOX = os.environ.get('TO_MAIL_BOX')
 ADMIN_IDS = [387605921]
 
 COMPLAIN_COLLECTED_TEXT = 'Благодарим Вас за Вашу гражданскую активность, Ваше обращение будет рассмотрено экспертами Общественного штаба по контролю и наблюдению за выборами Челябинской области'
-NO_COMPLAIN_TEXT = 'Кажется, Вы не столкнулись с никаким нарушением. Вы можете вернуться назад'
+NO_COMPLAIN_TEXT = 'Кажется, Вы не столкнулись с каким-либо нарушением. Вы можете вернуться назад'
 FINAL_TEXT = 'Остались вопросы?\n\nВы можете позвонить на горячую линию Общественного штаба по контролю и наблюдению за выборами и проконсультироваться со специалистом: 8(351)737-16-57'
 
 cat_button_text = '🔄 К категориям'
@@ -320,7 +320,10 @@ async def goCats(callback: types.CallbackQuery, state: FSMContext):
     data = find_next(None)
     text = data['text'][-1]
     keyboard = find_keyboard(data['id'])
-    await callback.message.edit_text(text=text, reply_markup=keyboard)
+    if current_state == 'PollStates:poll':
+        await callback.message.answer(text=text, reply_markup=keyboard)
+    else:
+        await callback.message.edit_text(text=text, reply_markup=keyboard)
     await StartStates.start.set()
 
 @dp.message_handler(Text(equals=cat_button_text), state=['*'])
@@ -783,8 +786,8 @@ async def choose_category(message: types.Message, state: FSMContext):
         else:
             text = data['text'][0]
         keyboard = find_keyboard(data['id'])
-    async with state.proxy() as st:
-        st['temp_complain'].append((text, st['prefix']))
+    # async with state.proxy() as st:
+    #     st['temp_complain'].append((text, st['prefix']))
     await message.answer(text=text, reply_markup=keyboard)
     async with state.proxy() as st:
         st['complain']['title'] = message.text
@@ -916,7 +919,7 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
         try:
             passed = session.scalar(select(Poll.passed).where(Poll.id == 1)).split( )
         except AttributeError:
-            return await callback.message.edit_text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+            return await callback.message.text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
         if str(callback.from_user.id) in passed:
             return await callback.message.edit_text(text='Вы уже проходили опрос', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
         else:
