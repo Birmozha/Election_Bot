@@ -156,7 +156,8 @@ async def check_complain(state: FSMContext):
     keyboard = InlineKeyboardMarkup(
         ).add(InlineKeyboardButton(text='Отправить жалобу', callback_data='submit')
                                           ).add(InlineKeyboardButton(text='Изменить жалобу', callback_data='change-text')
-                                                ).add(InlineKeyboardButton(text='Добавить фото (или видео)', callback_data='change-media'))
+                                                ).add(InlineKeyboardButton(text='Добавить фото (или видео)', callback_data='change-media')
+                                                      ).add(InlineKeyboardButton(text='Отменить отправку жалобы', callback_data='go-cats'))
     media_keyboard = InlineKeyboardMarkup(
         ).add(InlineKeyboardButton(text='Отправить жалобу', callback_data='submit')
                                           ).add(InlineKeyboardButton(text='Изменить жалобу', callback_data='change-text')
