@@ -307,7 +307,10 @@ async def goBack(callback: types.CallbackQuery, state: FSMContext):
         id = st['prev']
     keyboard = find_keyboard(id)
     await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
-    await callback.message.answer(text='Вернул назад', reply_markup=keyboard.add(reply_back_button))
+    try:
+        await callback.message.answer(text='Вернул назад', reply_markup=keyboard.add(reply_back_button))
+    except Exception:
+        await callback.message.answer(text='Вернул назад', reply_markup=keyboard.add(inline_back_button))
 
 
 @dp.callback_query_handler(Text(equals='go-cats'), state=['*'])
@@ -932,7 +935,10 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
                     st['poll-id'] = poll['message_id']
                 return
             except Exception:
-                return await callback.message.edit_text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+                try:
+                    await callback.message.edit_text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+                finally:
+                    return
     elif int(callback.data) == 2:
         async with state.proxy() as st:
             st['complain'] = {}
