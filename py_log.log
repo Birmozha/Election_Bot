@@ -1,0 +1,16 @@
+ERROR:asyncio:Task exception was never retrieved
+future: <Task finished name='Task-70' coro=<Dispatcher._process_polling_updates() done, defined at C:\Users\birmo\OneDrive\Рабочий стол\Election_Bot\.venv\lib\site-packages\aiogram\dispatcher\dispatcher.py:407> exception=ValueError("invalid literal for int() with base 10: 'submit'")>
+Traceback (most recent call last):
+  File "C:\Users\birmo\OneDrive\Рабочий стол\Election_Bot\.venv\lib\site-packages\aiogram\dispatcher\dispatcher.py", line 415, in _process_polling_updates
+    for responses in itertools.chain.from_iterable(await self.process_updates(updates, fast)):
+  File "C:\Users\birmo\OneDrive\Рабочий стол\Election_Bot\.venv\lib\site-packages\aiogram\dispatcher\dispatcher.py", line 235, in process_updates
+    return await asyncio.gather(*tasks)
+  File "C:\Users\birmo\OneDrive\Рабочий стол\Election_Bot\.venv\lib\site-packages\aiogram\dispatcher\handler.py", line 117, in notify
+    response = await handler_obj.handler(*args, **partial_data)
+  File "C:\Users\birmo\OneDrive\Рабочий стол\Election_Bot\.venv\lib\site-packages\aiogram\dispatcher\dispatcher.py", line 283, in process_update
+    return await self.callback_query_handlers.notify(update.callback_query)
+  File "C:\Users\birmo\OneDrive\Рабочий стол\Election_Bot\.venv\lib\site-packages\aiogram\dispatcher\handler.py", line 117, in notify
+    response = await handler_obj.handler(*args, **partial_data)
+  File "C:\Users\birmo\OneDrive\Рабочий стол\Election_Bot\bot.py", line 952, in define_category
+    if int(callback.data) == 17:
+ValueError: invalid literal for int() with base 10: 'submit'
