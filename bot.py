@@ -35,7 +35,7 @@ TO_MAIL_BOX = os.environ.get('TO_MAIL_BOX')
 
 ADMIN_IDS = [387605921]
 
-COMPLAIN_COLLECTED_TEXT = 'Благодарим Вас за Вашу гражданскую активность, Ваше обращение будет рассмотрено экспертами Общественного штаба по контролю и наблюдению за выборами Челябинской области'
+COMPLAIN_COLLECTED_TEXT = 'Благодарим Вас за Вашу гражданскую активность, Ваше обращение будет рассмотрено экспертами Общественного штаба по контролю и наблюдению за выборами Челябинской области. Идентификатор вашего обращения: '
 NO_COMPLAIN_TEXT = 'Кажется, Вы не столкнулись с каким-либо нарушением. Вы можете вернуться назад'
 FINAL_TEXT = 'Остались вопросы?\n\nВы можете позвонить на горячую линию Общественного штаба по контролю и наблюдению за выборами и проконсультироваться со специалистом: 8(351)737-16-57'
 
@@ -154,14 +154,24 @@ async def text_to_id(message: types.Message, state: FSMContext):
 async def check_complain(state: FSMContext):
     await ComplainStates.wait_confirmation.set()
     keyboard = InlineKeyboardMarkup(
-        ).add(InlineKeyboardButton(text='Отправить жалобу', callback_data='submit')
-                                          ).add(InlineKeyboardButton(text='Изменить жалобу', callback_data='change-text')
-                                                ).add(InlineKeyboardButton(text='Добавить фото (или видео)', callback_data='change-media'))
+        ).add(InlineKeyboardButton(text='Отправить сообщение о нарушении', callback_data='submit')
+                                          ).add(InlineKeyboardButton(text='Изменить сообщение о нарушении', callback_data='change-text')
+                                                ).add(InlineKeyboardButton(text='Добавить фото (или видео)', callback_data='change-media')
+                                                      ).add(InlineKeyboardButton(text='Отменить отправку сообщения о нарушении', callback_data='go-cats'))
+    final_keyboard = InlineKeyboardMarkup(
+        ).add(InlineKeyboardButton(text='Отправить сообщение о нарушении', callback_data='submit')
+                                          ).add(InlineKeyboardButton(text='Добавить фото (или видео)', callback_data='change-media')
+                                                ).add(InlineKeyboardButton(text='Отменить отправку сообщения о нарушении', callback_data='go-cats'))
     media_keyboard = InlineKeyboardMarkup(
-        ).add(InlineKeyboardButton(text='Отправить жалобу', callback_data='submit')
-                                          ).add(InlineKeyboardButton(text='Изменить жалобу', callback_data='change-text')
-                                                ).add(InlineKeyboardButton(text='Изменить фото (или видео)', callback_data='change-media')
-                                                      ).add(InlineKeyboardButton(text='Отменить отправку жалобы', callback_data='go-cats'))
+        ).add(InlineKeyboardButton(text='Отправить сообщение о нарушении', callback_data='submit')
+              ).add(InlineKeyboardButton(text='Изменить сообщение о нарушении', callback_data='change-text')
+                    ).add(InlineKeyboardButton(text='Изменить фото (или видео)', callback_data='change-media')
+                          ).add(InlineKeyboardButton(text='Отменить отправку сообщения о нарушении', callback_data='go-cats'))
+    final_media_keyboard = InlineKeyboardMarkup(
+        ).add(InlineKeyboardButton(text='Отправить сообщение о нарушении', callback_data='submit')
+              ).add(InlineKeyboardButton(text='Изменить фото (или видео)', callback_data='change-media')
+                    ).add(InlineKeyboardButton(text='Отменить отправку сообщения о нарушении', callback_data='go-cats'))
+              
     async with state.proxy() as st:
         user_id = st['user_id']
         category = st['complain']['title']
@@ -178,21 +188,32 @@ async def check_complain(state: FSMContext):
         text = st['complain']['text']
     if not text:
         return await bot.send_message(chat_id=user_id, text=NO_COMPLAIN_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
-    complain = f'<b>Категория:</b> {category}\n\n<b>Жалоба:</b>'
+    complain = f'<b>Категория:</b> {category}\n\n<b>Сообщение о нарушении:</b>'
     for el in text:
         complain += el
     if photo_path:
         photo = InputFile(photo_path)
-        await bot.send_photo(chat_id=user_id, photo=photo, caption=complain, reply_markup=media_keyboard)
+        async with state.proxy() as st:
+            if st['temp_complain']:
+                await bot.send_photo(chat_id=user_id, photo=photo, caption=complain, reply_markup=media_keyboard)
+            else:
+                await bot.send_photo(chat_id=user_id, photo=photo, caption=complain, reply_markup=final_media_keyboard)
     elif video_path:
         video = InputFile(video_path)
-        await bot.send_video(chat_id=user_id, video=video, caption=complain, reply_markup=media_keyboard)
+        if st['temp_complain']:
+                await bot.send_video(chat_id=user_id, video=video, caption=complain, reply_markup=media_keyboard)
+        else:
+            await bot.send_video(chat_id=user_id, video=video, caption=complain, reply_markup=final_media_keyboard)
     else:
-        await bot.send_message(chat_id=user_id, text=complain, reply_markup=keyboard)
-
+        if st['temp_complain']:
+            await bot.send_message(chat_id=user_id, text=complain, reply_markup=keyboard)
+        else:
+            await bot.send_message(chat_id=user_id, text=complain, reply_markup=final_keyboard)
+            
 async def send_letter(state: FSMContext):
     async with state.proxy() as st:
         category = st['complain']['title']
+        id = st['complain']['id']
         try:
             photo_path = st['complain']['photo_path']
             photo_name = st['complain']['photo_name']
@@ -207,7 +228,7 @@ async def send_letter(state: FSMContext):
     message = MIMEMultipart()
     message['From'] = MAIL_BOX
     message['To'] = TO_MAIL_BOX
-    message['Subject'] = f'Новая жалоба: {category}'
+    message['Subject'] = f'Новое сообщение о нарушении: {category} - {id}'
     body = ''
     for el in text:
         body += f'\t{el}\n'
@@ -306,7 +327,10 @@ async def goBack(callback: types.CallbackQuery, state: FSMContext):
         id = st['prev']
     keyboard = find_keyboard(id)
     await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
-    await callback.message.answer(text='Вернул назад', reply_markup=keyboard.add(reply_back_button))
+    try:
+        await callback.message.answer(text='Вернул назад', reply_markup=keyboard.add(reply_back_button))
+    except Exception:
+        await callback.message.answer(text='Вернул назад', reply_markup=keyboard.add(inline_back_button))
 
 
 @dp.callback_query_handler(Text(equals='go-cats'), state=['*'])
@@ -320,7 +344,10 @@ async def goCats(callback: types.CallbackQuery, state: FSMContext):
     data = find_next(None)
     text = data['text'][-1]
     keyboard = find_keyboard(data['id'])
-    await callback.message.edit_text(text=text, reply_markup=keyboard)
+    if current_state == 'PollStates:poll':
+        await callback.message.answer(text=text, reply_markup=keyboard)
+    else:
+        await callback.message.edit_text(text=text, reply_markup=keyboard)
     await StartStates.start.set()
 
 @dp.message_handler(Text(equals=cat_button_text), state=['*'])
@@ -525,11 +552,12 @@ async def skip_photo(callback: types.CallbackQuery, state: FSMContext):
     await bot.send_chat_action(chat_id=callback.message.from_user.id, action='typing')
     async with state.proxy() as st:
         prev = st['prev']
+        id = st['complain']['id']
     data = find_next(prev)
     if not data:
         await send_letter(state)
         await StartStates.start.set()
-        await callback.message.answer(text=COMPLAIN_COLLECTED_TEXT)
+        await callback.message.answer(text=COMPLAIN_COLLECTED_TEXT+str(id))
         return await callback.message.answer(text=FINAL_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
     await set_states(data, state)
     if len(data['text']) > 1:
@@ -554,22 +582,23 @@ async def wait_text(message: types.Message, state: FSMContext):
     async with state.proxy() as st:
             prev = st['prev']
             category = st['complain']['title'].lower().strip().replace(' ', '_')
+            id = st['complain']['id']
     if message.photo or message.video:
         if message.photo:
-            await message.photo[-1].download(destination_file=f'database\complain_photos/{category}_{message.message_id}.jpg')
+            await message.photo[-1].download(destination_file=f'database\complain_photos/{category}_{id}.jpg')
             async with state.proxy() as st:
-                st['complain']['photo_path'] = f'database\complain_photos/{category}_{message.message_id}.jpg'
-                st['complain']['photo_name'] = f'{category}_{message.message_id}.jpg'
+                st['complain']['photo_path'] = f'database\complain_photos/{category}_{id}.jpg'
+                st['complain']['photo_name'] = f'{category}_{id}.jpg'
         elif message.video:
-            await message.video.download(destination_file=f'database\complain_videos/{category}_{message.message_id}.mp4')
+            await message.video.download(destination_file=f'database\complain_videos/{category}_{id}.mp4')
             async with state.proxy() as st:
-                st['complain']['video_path'] = f'database\complain_videos/{category}_{message.message_id}.mp4'
-                st['complain']['video_name'] = f'{category}_{message.message_id}.mp4'
+                st['complain']['video_path'] = f'database\complain_videos/{category}_{id}.mp4'
+                st['complain']['video_name'] = f'{category}_{id}.mp4'
         data = find_next(prev)
         if not data:
             await send_letter(state)
             await StartStates.start.set()
-            await message.answer(text=COMPLAIN_COLLECTED_TEXT)
+            await message.answer(text=COMPLAIN_COLLECTED_TEXT+str(id))
             return await message.answer(text=FINAL_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
         await set_states(data, state)
         if len(data['text']) > 1:
@@ -634,10 +663,12 @@ async def wait_text(message: types.Message, state: FSMContext):
 @dp.callback_query_handler(Text(equals='submit'), state=ComplainStates.wait_confirmation)
 async def submit_complain(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
+    async with state.proxy() as st:
+        id = st['complain']['id']
     await send_letter(state)
     await StartStates.start.set()
     await callback.message.delete()
-    await callback.message.answer(text=COMPLAIN_COLLECTED_TEXT)
+    await callback.message.answer(text=COMPLAIN_COLLECTED_TEXT+str(id))
     return await callback.message.answer(text=FINAL_TEXT, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
 
 @dp.callback_query_handler(Text(equals='change-text'), state=ComplainStates.wait_confirmation)
@@ -663,18 +694,31 @@ async def change_complain_media(callback: types.CallbackQuery, state: FSMContext
 async def change_photo(message: types.Message, state: FSMContext):
     await bot.send_chat_action(chat_id=message.from_user.id, action='typing')
     async with state.proxy() as st:
-            category = st['complain']['title'].lower().strip().replace(' ', '_')
+        id = st['complain']['id']
+        category = st['complain']['title'].lower().strip().replace(' ', '_')
+        try:
+            photo_path = st['complain']['photo_path']
+        except KeyError:
+            photo_path = None
+        try:
+            video_path = st['complain']['video_path']
+        except KeyError:
+            video_path = None
+        if photo_path:
+            os.remove(os.path.join(os.path.dirname(__file__), photo_path))
+        elif video_path:
+            os.remove(os.path.join(os.path.dirname(__file__), video_path))
     if message.photo or message.video:
         if message.photo:
-            await message.photo[-1].download(destination_file=f'database\complain_photos/{category}_{message.message_id}.jpg')
+            await message.photo[-1].download(destination_file=f'database\complain_photos/{category}_{id}.jpg')
             async with state.proxy() as st:
-                st['complain']['photo_path'] = f'database\complain_photos/{category}_{message.message_id}.jpg'
-                st['complain']['photo_name'] = f'{category}_{message.message_id}.jpg'
+                st['complain']['photo_path'] = f'database\complain_photos/{category}_{id}.jpg'
+                st['complain']['photo_name'] = f'{category}_{id}.jpg'
         elif message.video:
-            await message.video.download(destination_file=f'database\complain_videos/{category}_{message.message_id}.mp4')
+            await message.video.download(destination_file=f'database\complain_videos/{category}_{id}.mp4')
             async with state.proxy() as st:
-                st['complain']['video_path'] = f'database\complain_videos/{category}_{message.message_id}.mp4'
-                st['complain']['video_name'] = f'{category}_{message.message_id}.mp4'
+                st['complain']['video_path'] = f'database\complain_videos/{category}_{id}.mp4'
+                st['complain']['video_name'] = f'{category}_{id}.mp4'
         await check_complain(state)
     else:
         await ComplainStates.change_photo.set()
@@ -783,8 +827,9 @@ async def choose_category(message: types.Message, state: FSMContext):
         else:
             text = data['text'][0]
         keyboard = find_keyboard(data['id'])
-    async with state.proxy() as st:
-        st['temp_complain'].append((text, st['prefix']))
+    if '<waittext>' in data['properties']:
+        async with state.proxy() as st:
+            st['temp_complain'].append((text, st['prefix']))
     await message.answer(text=text, reply_markup=keyboard)
     async with state.proxy() as st:
         st['complain']['title'] = message.text
@@ -916,7 +961,7 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
         try:
             passed = session.scalar(select(Poll.passed).where(Poll.id == 1)).split( )
         except AttributeError:
-            return await callback.message.edit_text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+            return await callback.message.text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
         if str(callback.from_user.id) in passed:
             return await callback.message.edit_text(text='Вы уже проходили опрос', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
         else:
@@ -928,11 +973,15 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
                     st['poll-id'] = poll['message_id']
                 return
             except Exception:
-                return await callback.message.edit_text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+                try:
+                    await callback.message.edit_text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+                finally:
+                    return
     elif int(callback.data) == 2:
         async with state.proxy() as st:
             st['complain'] = {}
             st['complain']['text'] = []
+            st['complain']['id'] = f'{callback.message.chat.id}-{callback.message.message_id}'
             st['temp_complain'] = []
         await ComplainStates.choose_category.set()
         
