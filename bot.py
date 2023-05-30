@@ -963,7 +963,11 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
         except AttributeError:
             return await callback.message.text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
         if str(callback.from_user.id) in passed:
-            return await callback.message.edit_text(text='Вы уже проходили опрос', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+            results = session.scalars(select(PollOptions).where(PollOptions.pid == 1)).all()
+            text_results = 'Результаты:\n\n'
+            for result in results:
+                text_results += str('<b>' + result.option.split('🔸 ')[1] + '</b>') + ':    ' + str(result.count) + '\n'    
+            return await callback.message.edit_text(text='Вы уже проходили опрос\n\n'+text_results, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
         else:
             try:
                 await PollStates.poll.set()
