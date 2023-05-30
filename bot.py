@@ -436,7 +436,7 @@ async def dailog(message: types.Message, state: FSMContext):
         # return await bot.send_photo(chat_id=message.from_user.id, caption='Или используйте кнопки', photo=photo)
         await bot.send_media_group(chat_id=message.from_user.id, media=media)
         return await message.answer(text='Пожалуйста, следуйте инструкции')
-    if '<candidates>' in data['properties'] :
+    if '<candidates>' in data['properties']:
         async with state.proxy() as st:
             message = await message.answer(text=data['candidates'][0], reply_markup=InlineKeyboardMarkup(row_width=3)
                                            .insert(InlineKeyboardButton(text='⬅️', callback_data='candidate-0'))
