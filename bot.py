@@ -1,4 +1,5 @@
 import logging
+import time
 import os
 import asyncio
 from dotenv import load_dotenv
@@ -81,6 +82,10 @@ class PollStates(StartStates):
     poll = State()
     
 # ---------------------------------------------------------------------------
+
+async def on_startup():
+    user_should_be_notified = 387605921
+    await bot.send_message(387605921, 'Бот запущен')
 
 # FUNCTIONS -----------------------------------------------------------------
 
@@ -438,11 +443,14 @@ async def dailog(message: types.Message, state: FSMContext):
         return await message.answer(text='Пожалуйста, следуйте инструкции')
     if '<candidates>' in data['properties'] :
         async with state.proxy() as st:
-            message = await message.answer(text=data['candidates'][0], reply_markup=InlineKeyboardMarkup(row_width=3)
-                                           .insert(InlineKeyboardButton(text='⬅️', callback_data='candidate-0'))
-                                           .insert(InlineKeyboardButton(text=f" 1 / {len(data['candidates'])}", callback_data='candidate'))
-                                           .insert(InlineKeyboardButton(text='➡️', callback_data='candidate-1')))
-            st['candidates'][message["message_id"]] = data['candidates']
+            try:
+                message = await message.answer(text=data['candidates'][0], reply_markup=InlineKeyboardMarkup(row_width=3)
+                                            .insert(InlineKeyboardButton(text='⬅️', callback_data='candidate-0'))
+                                            .insert(InlineKeyboardButton(text=f" 1 / {len(data['candidates'])}", callback_data='candidate'))
+                                            .insert(InlineKeyboardButton(text='➡️', callback_data='candidate-1')))
+                st['candidates'][message["message_id"]] = data['candidates']
+            except:
+                pass
             
         keyboard = find_keyboard(data['id'])
         if isinstance(keyboard, ReplyKeyboardRemove):
@@ -964,7 +972,8 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
             return await callback.message.text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
         if str(callback.from_user.id) in passed:
             results = session.scalars(select(PollOptions).where(PollOptions.pid == 1)).all()
-            text_results = 'Результаты:\n\n'
+            question = session.scalar(select(Poll.question).where(Poll.id == 1))
+            text_results = f'Опрос: {question}\nРезультаты:\n\n'
             for result in results:
                 text_results += str('<b>' + result.option.split('🔸 ')[1] + '</b>') + ':    ' + str(result.count) + '\n'    
             return await callback.message.edit_text(text='Вы уже проходили опрос\n\n'+text_results, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
@@ -1011,4 +1020,11 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
 if __name__ == '__main__':
     logging.basicConfig(level=logging.ERROR, filename="py_log.log",filemode="w")
     session.execute(text("PRAGMA foreign_keys=ON"))
-    executor.start_polling(dp, skip_updates=True)
+    while True:
+        try:
+            executor.start(dp, on_startup())
+            executor.start_polling(dp, skip_updates=True)
+        except:
+            time.sleep(5)
+    
+    
