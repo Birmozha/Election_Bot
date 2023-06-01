@@ -251,7 +251,7 @@ async def send_letter(state: FSMContext):
             video.add_header('Content-Disposition', 'attachment', filename=f'{video_name}')
             message.attach(video)
         
-    smtpObj = smtplib.SMTP('smtp.mail.ru')
+    smtpObj = smtplib.SMTP('smtp.yandex.ru')
     smtpObj.starttls()
     smtpObj.login(MAIL_BOX, MAIL_PASSWORD)
     smtpObj.send_message(message)
