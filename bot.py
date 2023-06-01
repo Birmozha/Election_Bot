@@ -928,7 +928,6 @@ async def admin_handler(callback: types.CallbackQuery, state: FSMContext):
     else:
         await callback.answer('Вы находитесь в админ-панели. Используйте команду /start')
         
-
 @dp.message_handler(state=AdminStates.wait_question)
 async def admin_handler(message: types.Message, state: FSMContext):
     question = Poll(question = message.text)
@@ -973,9 +972,12 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
         if str(callback.from_user.id) in passed:
             results = session.scalars(select(PollOptions).where(PollOptions.pid == 1)).all()
             question = session.scalar(select(Poll.question).where(Poll.id == 1))
-            text_results = f'Опрос: {question}\nРезультаты:\n\n'
+            text_results = f'Вопрос: "{question}"\n\nРезультаты (всего голосов: {len(passed)}):\n\n'
             for result in results:
-                text_results += str('<b>' + result.option.split('🔸 ')[1] + '</b>') + ':    ' + str(result.count) + '\n'    
+                    try:
+                        text_results += str('<b>' + result.option.split('🔸 ')[1] + '</b>') + ':   ' + str(round(result.count/len(passed)*100, 2)) + '%\n'    
+                    except ZeroDivisionError:
+                        text_results += str('<b>' + result.option.split('🔸 ')[1] + '</b>') + ':   ' + str(0) + '%\n'
             return await callback.message.edit_text(text='Вы уже проходили опрос\n\n'+text_results, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
         else:
             try:
