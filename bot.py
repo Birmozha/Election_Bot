@@ -335,7 +335,7 @@ async def goBack(callback: types.CallbackQuery, state: FSMContext):
     try:
         await callback.message.answer(text='Вернул назад', reply_markup=keyboard.add(reply_back_button))
     except Exception:
-        await callback.message.answer(text='Вернул назад', reply_markup=keyboard.add(inline_back_button))
+        await callback.message.answer(text='Вернул назад')
 
 
 @dp.callback_query_handler(Text(equals='go-cats'), state=['*'])
@@ -352,7 +352,10 @@ async def goCats(callback: types.CallbackQuery, state: FSMContext):
     if current_state == 'PollStates:poll':
         await callback.message.answer(text=text, reply_markup=keyboard)
     else:
-        await callback.message.edit_text(text=text, reply_markup=keyboard)
+        try:
+            await callback.message.edit_text(text=text, reply_markup=keyboard)
+        except:
+            await callback.message.answer(text=text, reply_markup=keyboard)
     await StartStates.start.set()
 
 @dp.message_handler(Text(equals=cat_button_text), state=['*'])
