@@ -897,7 +897,7 @@ async def collect_poll_answer(callback: types.CallbackQuery, state: FSMContext):
             return await callback.message.edit_text(text=f"({st['poll-question']}) {poll_data[n][0]}", reply_markup=InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=option, callback_data=option) for option in poll_data[n][1]]).add(inline_cat_button))
     await callback.message.edit_text(text='Спасибо за прохождение опроса!', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
     session.execute(update(Poll).where(Poll.id == 1).values(passed=(Poll.passed + f' {str(id)}')))
-    session.execute(update(PollOptions).where(PollOptions.option == callback.data).where(PollOptions.pid == n).values(count=PollOptions.count + 1))
+    session.execute(update(PollOptions).where(PollOptions.id == callback.data).where(PollOptions.pid == n).values(count=PollOptions.count + 1))
     session.commit()
     await StartStates.start.set()
     
@@ -1078,7 +1078,7 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
 
 
 if __name__ == '__main__':
-    # logging.basicConfig(level=logging.ERROR, filename="py_log.log", filemode="w", format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    logging.basicConfig(level=logging.ERROR, filename="py_log.log", filemode="w", format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     session.execute(text("PRAGMA foreign_keys=ON"))
     while True:
         try:
