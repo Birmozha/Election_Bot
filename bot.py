@@ -262,13 +262,41 @@ async def send_letter(state: FSMContext):
         os.remove(os.path.join(os.path.dirname(__file__), video_path))
 
 async def get_poll(callback: types.CallbackQuery, state: FSMContext):
-    question = session.scalar(select(Poll.question).where(Poll.id == 1))
-    options = session.scalars(select(PollOptions.option).where(PollOptions.pid == 1)).all()
+    poll_data = []
+    questions = session.scalars(select(Poll.question)).all()
+    for i, question in enumerate(questions):
+        pid = i + 1
+        poll_data.append((question, session.scalars(select(PollOptions.option).where(PollOptions.pid == pid)).all()))
     current_state = await state.get_state()
+    n = len(poll_data)
+    async with state.proxy() as st:
+        st['poll-data'] = poll_data
+        st['poll-len'] = n
+    text_number_of_questions = f'Опрос является полностью анонимным, Ваши персональные данные в безопасности. Результаты опроса будут использованы в обобщенном виде'
+    if n > 1:
+        text_number_of_questions += f'. \n\nОпрос содержит {n} '
+        if (n == 2 or n == 3 or n == 4) or ((n % 10 == 2 or n % 10 == 3 or n % 10 == 4) and n != 12 and n != 13 and n != 14):
+            text_number_of_questions += 'вопроса'
+        elif n == 1 or (n % 10 == 1 and n != 11):
+            text_number_of_questions += 'вопрос'
+        else:
+            text_number_of_questions += 'вопросов'
     if current_state == 'AdminStates:admin':
-        return await callback.message.answer(text=question, reply_markup=InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=option, callback_data=option) for option in options]))
+        text = ''
+        for n, i in enumerate(poll_data):
+            text += f'({n+1}) {i[0]}\n'
+            for el in i[1]:
+                text += f'{el}\n'
+            text += '\n'
+        return await callback.message.edit_text(text=text, reply_markup=admin_keyborad)
     else:
-        return await callback.message.answer(text=question, reply_markup=InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=option, callback_data=option) for option in options]).add(inline_cat_button))
+        await callback.message.answer(text=text_number_of_questions)
+        async with state.proxy() as st:
+            st['poll-question'] = 1
+            if n > 1:
+                return await callback.message.answer(text=f"({st['poll-question']}) {poll_data[0][0]}", reply_markup=InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=option, callback_data=option) for option in poll_data[0][1]]).add(inline_cat_button))
+            else:
+                return await callback.message.answer(text=f"{poll_data[0][0]}", reply_markup=InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=option, callback_data=option) for option in poll_data[0][1]]).add(inline_cat_button))
 
 # ---------------------------------------------------------------------------
 
@@ -294,7 +322,8 @@ async def cmd_admin(message: types.Message, state: FSMContext):
         await message.reply(text='Вы не являетесь администратором')
     else:
         await AdminStates.admin.set()
-        await message.reply(text='Вы успешно вошли в админ-панель', reply_markup=admin_keyborad)
+        await message.reply(text='Вы успешно вошли в админ-панель')
+        await message.answer(text='Используйте кнопки для взаимодействия', reply_markup=admin_keyborad)
 
 @dp.message_handler(commands=['start'], state=['*'])
 async def cmd_start(message: types.Message, state: FSMContext):
@@ -856,10 +885,18 @@ async def choose_category(message: types.Message, state: FSMContext):
 
 @dp.callback_query_handler(state=PollStates.poll)
 async def collect_poll_answer(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(text='Спасибо за прохождение опроса!', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
     id = callback.from_user.id
+    async with state.proxy() as st:
+        poll_len = st['poll-len']
+        n = st['poll-question']
+        if poll_len > n:
+            poll_data = st['poll-data']
+            st['poll-question'] += 1
+            session.execute(update(PollOptions).where(PollOptions.option == callback.data).where(PollOptions.pid == n).values(count=PollOptions.count + 1))
+            return await callback.message.edit_text(text=f"({st['poll-question']}) {poll_data[n][0]}", reply_markup=InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=option, callback_data=option) for option in poll_data[n][1]]).add(inline_cat_button))
+    await callback.message.edit_text(text='Спасибо за прохождение опроса!', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
     session.execute(update(Poll).where(Poll.id == 1).values(passed=(Poll.passed + f' {str(id)}')))
-    session.execute(update(PollOptions).where(PollOptions.option == callback.data).values(count=PollOptions.count + 1))
+    session.execute(update(PollOptions).where(PollOptions.option == callback.data).where(PollOptions.pid == n).values(count=PollOptions.count + 1))
     session.commit()
     await StartStates.start.set()
     
@@ -896,16 +933,16 @@ async def admin_handler(callback: types.CallbackQuery, state: FSMContext):
         try:
             await get_poll(callback, state)
         except Exception:
-            await callback.message.answer('Действующего опроса нет')
+            await callback.message.edit_text('Действующего опроса нет', reply_markup=admin_keyborad)
     elif callback.data == 'get-results':
         await callback.answer()
         results = session.scalars(select(PollOptions).where(PollOptions.pid == 1)).all()
         if not results:
-            return await callback.message.answer('Действующего опроса нет')
+            return await callback.message.edit_text('Действующего опроса нет', reply_markup=admin_keyborad)
         text_results = 'Результаты:\n\n'
         for result in results:
             text_results += str('<b>' + result.option.split('🔸 ')[1] + '</b>') + ':    ' + str(result.count) + '\n'
-        await callback.message.answer(text_results)
+        await callback.message.edit_text(text_results, reply_markup=admin_keyborad)
     elif callback.data == 'finish-current':
         await callback.answer()
         results = session.scalars(select(PollOptions).where(PollOptions.pid == 1)).all()
@@ -914,14 +951,17 @@ async def admin_handler(callback: types.CallbackQuery, state: FSMContext):
         text_results = 'Результаты:\n\n'
         for result in results:
             text_results += str('<b>' + result.option.split('🔸 ')[1] + '</b>') + ':    ' + str(result.count) + '\n'
-        await callback.message.answer(text_results)
+        await callback.message.edit_text(text_results, reply_markup=admin_keyborad)
         session.query(Poll).delete()
         session.commit()
     elif callback.data == 'new-poll':
         await callback.answer()
         session.query(Poll).delete()
         session.commit()
+        await callback.message.edit_text(text='Пожалуйста, следуйте инструкциям', reply_markup=admin_keyborad)
         await callback.message.answer(text='Введите вопрос')
+        async with state.proxy() as st:
+            st['add-poll-pid'] = 1
         await AdminStates.wait_question.set()
     elif callback.data == 'admins':
         await callback.answer()
@@ -932,7 +972,7 @@ async def admin_handler(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer('Вы находитесь в админ-панели. Используйте команду /start')
         
 @dp.message_handler(state=AdminStates.wait_question)
-async def admin_handler(message: types.Message, state: FSMContext):
+async def admin_handler_wq(message: types.Message, state: FSMContext):
     question = Poll(question = message.text)
     session.add(question)
     session.commit()
@@ -941,22 +981,33 @@ async def admin_handler(message: types.Message, state: FSMContext):
     await AdminStates.wait_answer.set()
 
 @dp.message_handler(state=AdminStates.wait_answer)
-async def admin_handler(message: types.Message, state: FSMContext):
-    option = PollOptions(pid = 1, option = '🔸 ' + message.text)
+async def admin_handler_wa(message: types.Message, state: FSMContext):
+    async with state.proxy() as st:
+        pid = st['add-poll-pid']
+    option = PollOptions(pid = pid, option = '🔸 ' + message.text)
     session.add(option)
     session.commit()
     if len(session.scalars(select(PollOptions).where(PollOptions.pid == 1)).all()) < 2:
-        await message.reply('Вопрос записан')
+        await message.reply('Вариант ответа записан')
         await message.answer('Введите вариант ответа')
     else:
-        await message.reply('Вопрос записан')
-        await message.answer(text='Введите вариант ответа', reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(text='Создать опрос', callback_data='create-poll')))
-    
+        await message.reply('Вариант ответа записан')
+        await message.answer(text='Введите вариант ответа', reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton(text='Добавить вопрос', callback_data='add-poll-choice')).add(InlineKeyboardButton(text='Создать опрос', callback_data='create-poll')))
+
+@dp.callback_query_handler(Text(equals='add-poll-choice'), state=AdminStates.wait_answer)
+async def admin_handler_wmq(callback: types.Message, state: FSMContext):
+    await callback.answer()
+    await callback.message.answer(text='Введите вопрос')
+    async with state.proxy() as st:
+        st['add-poll-pid'] += 1
+    await AdminStates.wait_question.set()
+
+
 @dp.callback_query_handler(Text(equals='create-poll'), state=AdminStates.wait_answer)
 async def create_poll(callback: types.CallbackQuery, state: FSMContext):
     await AdminStates.admin.set()
     await callback.answer()
-    await callback.message.answer('Опрос создан!', reply_markup=admin_keyborad)
+    await callback.message.edit_text('Опрос создан!', reply_markup=admin_keyborad)
         
 # ---------------------------------------------------------------------------
 
@@ -973,15 +1024,18 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
         except AttributeError:
             return await callback.message.edit_text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
         if str(callback.from_user.id) in passed:
-            results = session.scalars(select(PollOptions).where(PollOptions.pid == 1)).all()
-            question = session.scalar(select(Poll.question).where(Poll.id == 1))
-            text_results = f'Вопрос: "{question}"\n\nРезультаты (всего голосов: {len(passed)}):\n\n'
-            for result in results:
+            text_results = f'Результаты (всего голосов: {len(passed)}):\n'
+            results = session.scalars(select(Poll)).all()
+            for n, result in enumerate(results):
+                question = session.scalar(select(Poll.question).where(Poll.id == result.id))
+                text_results += f'\n({n+1}) {question}\n'
+                options = session.scalars(select(PollOptions).where(PollOptions.pid == result.id)).all()
+                for option in options:
                     try:
-                        text_results += str('<b>' + result.option.split('🔸 ')[1] + '</b>') + ':   ' + str(round(result.count/len(passed)*100, 2)) + '%\n'    
+                        text_results += str('<b>' + option.option.split('🔸 ')[1] + '</b>') + ':   ' + str(round(option.count/len(passed)*100, 2)) + '%\n'    
                     except ZeroDivisionError:
-                        text_results += str('<b>' + result.option.split('🔸 ')[1] + '</b>') + ':   ' + str(0) + '%\n'
-            return await callback.message.edit_text(text='Вы уже проходили опрос\n\n'+text_results, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+                        text_results += str('<b>' + option.option.split('🔸 ')[1] + '</b>') + ':   ' + str(0) + '%\n'
+            return await callback.message.edit_text(text='Вы уже проходили опрос\n\n' + text_results, reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
         else:
             try:
                 await PollStates.poll.set()
