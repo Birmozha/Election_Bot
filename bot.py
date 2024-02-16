@@ -294,9 +294,10 @@ async def get_poll(callback: types.CallbackQuery, state: FSMContext):
         async with state.proxy() as st:
             st['poll-question'] = 1
             if n > 1:
-                return await callback.message.answer(text=f"({st['poll-question']}) {poll_data[0][0]}", reply_markup=InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=option, callback_data=option) for option in poll_data[0][1]]).add(inline_cat_button))
+                return await callback.message.answer(text=f"({st['poll-question']}) {poll_data[0][0]}", reply_markup=InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=option, callback_data=session.scalar(select(PollOptions.id).where(PollOptions.pid == st['poll-question']).where(PollOptions.option == option))) for option in poll_data[0][1]]).add(inline_cat_button))
             else:
-                return await callback.message.answer(text=f"{poll_data[0][0]}", reply_markup=InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=option, callback_data=option) for option in poll_data[0][1]]).add(inline_cat_button))
+                print(poll_data[0][1])
+                return await callback.message.answer(text=poll_data[0][0], reply_markup=InlineKeyboardMarkup(row_width=1).add(*[InlineKeyboardButton(text=option, callback_data=session.scalar(select(PollOptions.id).where(PollOptions.pid == st['poll-question']).where(PollOptions.option == option))) for option in poll_data[0][1]]).add(inline_cat_button))
 
 # ---------------------------------------------------------------------------
 
@@ -1077,7 +1078,7 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.ERROR, filename="py_log.log", filemode="w", format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    # logging.basicConfig(level=logging.ERROR, filename="py_log.log", filemode="w", format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     session.execute(text("PRAGMA foreign_keys=ON"))
     while True:
         try:
