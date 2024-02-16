@@ -971,7 +971,7 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
         try:
             passed = session.scalar(select(Poll.passed).where(Poll.id == 1)).split( )
         except AttributeError:
-            return await callback.message.text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
+            return await callback.message.edit_text(text='Действующего опроса нет', reply_markup=InlineKeyboardMarkup().add(inline_cat_button))
         if str(callback.from_user.id) in passed:
             results = session.scalars(select(PollOptions).where(PollOptions.pid == 1)).all()
             question = session.scalar(select(Poll.question).where(Poll.id == 1))
@@ -1023,7 +1023,7 @@ async def define_category(callback: types.CallbackQuery, state: FSMContext):
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.ERROR, filename="py_log.log",filemode="w")
+    logging.basicConfig(level=logging.ERROR, filename="py_log.log", filemode="w", format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     session.execute(text("PRAGMA foreign_keys=ON"))
     while True:
         try:
